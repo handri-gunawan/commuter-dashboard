@@ -671,10 +671,6 @@ async function refresh(){
 }
 
 function lineBadge(leg){
-  if(leg.walking){
-    const min = Math.max(1, Math.round((new Date(leg.arrival ?? leg.plannedArrival) - new Date(leg.departure ?? leg.plannedDeparture)) / 60000)) || "";
-    return `<span class="legbadge walkb">🚶 Fußweg${min ? " " + min + " Min" : ""}</span>`;
-  }
   const name = leg.line?.name || leg.line?.id || "Fahrt";
   const prod = leg.line?.product || "";
   const isSEV = /sev|ersatz/i.test(name) ||
@@ -687,6 +683,26 @@ function lineBadge(leg){
   else if(prod === "bus") bg = "var(--bus)";
   else if(prod === "regional" || prod === "regionalExpress" || prod === "express") bg = "var(--re)";
   return `<span class="legbadge" style="background:${bg}">${isSEV ? "🚌 " : ""}${esc(name)}${isSEV ? " · SEV" : ""}</span>`;
+}
+
+// Fußweg-Text: zeigt Gleis-zu-Gleis-Info statt (oft ungenauer) Gehzeit
+function walkLabel(prevLeg, nextLeg){
+  const fromPlat = (prevLeg && !prevLeg.walking)
+    ? (prevLeg.arrivalPlatform || prevLeg.plannedArrivalPlatform) : null;
+  const toPlat = (nextLeg && !nextLeg.walking)
+    ? (nextLeg.departurePlatform || nextLeg.plannedDeparturePlatform) : null;
+
+  if(fromPlat && toPlat){
+    return String(fromPlat) === String(toPlat)
+      ? `Gleis ${esc(fromPlat)} (gleiches Gleis)`
+      : `Gleis ${esc(fromPlat)} → Gleis ${esc(toPlat)}`;
+  }
+  if(fromPlat) return `ab Gleis ${esc(fromPlat)}`;
+  if(toPlat) return `zu Gleis ${esc(toPlat)}`;
+  return "Fußweg";
+}
+function walkBadge(prevLeg, nextLeg){
+  return `<span class="legbadge walkb">🚶 ${walkLabel(prevLeg, nextLeg)}</span>`;
 }
 
 // Gleis mit Erkennung kurzfristiger Gleiswechsel
@@ -777,10 +793,8 @@ function renderDetailModal(j, legs, tripDetails){
 
   const legsHtml = legs.map((leg, i) => {
     if(leg.walking){
-      const wdep = leg.departure ?? leg.plannedDeparture;
-      const warr = leg.arrival ?? leg.plannedArrival;
-      const wmin = durMinBetween(wdep, warr);
-      return `<div class="walksep">🚶 Fußweg${wmin ? " · " + wmin + " Min" : ""}${leg.distance ? " · ca. " + Math.round(leg.distance) + " m" : ""}</div>`;
+      const prevLeg = legs[i - 1], nextLeg = legs[i + 1];
+      return `<div class="walksep">🚶 ${walkLabel(prevLeg, nextLeg)}${leg.distance ? ` · ca. ${Math.round(leg.distance)} m` : ""}</div>`;
     }
 
     const trip = tripDetails[i] || leg;
@@ -937,7 +951,9 @@ function renderJourneys(journeys, q){
     const durMin = Math.round((new Date(arr) - new Date(dep)) / 60000);
     const changes = legs.filter(l => !l.walking).length - 1;
 
-    const chain = legs.map(lineBadge).join(`<span class="chev">›</span>`);
+    const chain = legs.map((leg, li) =>
+      leg.walking ? walkBadge(legs[li - 1], legs[li + 1]) : lineBadge(leg)
+    ).join(`<span class="chev">›</span>`);
 
     // Warnungen, Verspätungsgründe, Ersatzverkehr aus allen Abschnitten sammeln
     const seen = new Set();
