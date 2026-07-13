@@ -298,6 +298,80 @@
   .footer{
     margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.6;
   }
+
+  /* ---------- Karten klickbar ---------- */
+  .card{cursor:pointer;transition:border-color .15s,background .15s}
+  .card:hover{border-color:#3d4f73;background:var(--panel-2)}
+  .card:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+
+  /* ---------- Detail-Modal (Verbindungsdetails) ---------- */
+  .detailoverlay{
+    position:fixed;inset:0;background:rgba(6,9,15,.78);
+    display:none;align-items:flex-start;justify-content:center;
+    padding:min(6vh,48px) 14px 40px;overflow-y:auto;z-index:100;
+  }
+  .detailoverlay.open{display:flex}
+  .detailmodal{
+    background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    max-width:640px;width:100%;
+  }
+  .detailtop{
+    display:flex;justify-content:space-between;align-items:flex-start;gap:14px;
+    padding:18px 20px;border-bottom:1px solid var(--line);
+    position:sticky;top:0;background:var(--panel);border-radius:var(--radius) var(--radius) 0 0;
+  }
+  .detailtitle{font-size:16.5px;font-weight:800;line-height:1.3}
+  .detailmeta{font-size:12.5px;color:var(--muted);margin-top:5px;line-height:1.5}
+  .detailclose{
+    flex:none;width:32px;height:32px;border-radius:50%;
+    background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+    font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;
+  }
+  .detailclose:hover{background:var(--bg)}
+  .detailbody{padding:16px 20px 22px}
+  .detailloading{padding:56px 20px;text-align:center;color:var(--muted)}
+
+  .legblock{margin-bottom:18px}
+  .legblock:last-child{margin-bottom:0}
+  .leghead{
+    display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:10px;
+  }
+  .legdir{font-size:12.5px;color:var(--muted)}
+
+  .legrail{
+    margin-left:5px;border-left:3px solid var(--line);padding-left:20px;
+  }
+  .stoprow{
+    position:relative;display:flex;gap:12px;align-items:baseline;padding:9px 0;
+  }
+  .stoprow::before{
+    content:"";position:absolute;left:-26px;top:50%;transform:translateY(-50%);
+    width:10px;height:10px;border-radius:50%;
+    background:var(--bg);border:3px solid var(--muted);
+  }
+  .stoprow.endpoint::before{border-color:var(--amber)}
+  .stoprow.cancelled::before{border-color:var(--red)}
+  .stoprow .stoptime{
+    flex:none;min-width:52px;font-variant-numeric:tabular-nums;
+    font-weight:700;font-size:14px;color:var(--text);
+  }
+  .stoprow .stoptime.small{font-weight:600;font-size:12.5px;color:var(--muted)}
+  .stoprow .stopinfo{font-size:14px}
+  .stoprow .stopinfo.small{font-size:12.5px;color:var(--muted)}
+  .stoprow .stopinfo b{color:var(--text)}
+  .stoprow .gleis{margin-top:0;margin-left:8px;vertical-align:middle}
+
+  .stoptoggle{
+    margin-left:0;padding:4px 0 4px 2px;font-size:12.5px;color:var(--amber);
+    cursor:pointer;font-weight:600;user-select:none;
+  }
+  .stoptoggle:hover{text-decoration:underline}
+  .stopmids{margin:2px 0}
+
+  .walksep{
+    margin:2px 0 14px 5px;padding-left:20px;font-size:13px;color:var(--muted);
+    border-left:3px dashed var(--walk);padding-top:6px;padding-bottom:6px;
+  }
 </style>
 </head>
 <body>
@@ -392,6 +466,10 @@
     Barrierefrei-Modus: nur vollständig rollstuhlgeeignete Verbindungen mit mindestens 15 Minuten Umsteigezeit
     (im Eingabefeld neben dem Button von 0 bis 60 Minuten frei einstellbar).
   </div>
+</div>
+
+<div class="detailoverlay" id="detailOverlay" onclick="if(event.target === this) closeDetail()">
+  <div class="detailmodal" id="detailModal" role="dialog" aria-modal="true" aria-label="Verbindungsdetails"></div>
 </div>
 
 <script>
@@ -628,6 +706,155 @@ function isTrain(leg){
   return ["regional","regionalExpress","express","suburban","national","nationalExpress"].includes(p);
 }
 
+/* ---------- Detailseite (Verbindungsdetails, ähnlich bahn.de) ---------- */
+const tripDetailsCache = {};
+
+async function fetchTripDetails(tripId){
+  if(!tripId) return null;
+  if(tripDetailsCache[tripId] !== undefined) return tripDetailsCache[tripId];
+  try{
+    const params = new URLSearchParams({ stopovers:"true", remarks:"true", language:"de" });
+    const res = await fetch(`${API}/trips/${encodeURIComponent(tripId)}?${params}`);
+    if(!res.ok) throw new Error();
+    const data = await res.json();
+    const trip = data.trip || data;
+    tripDetailsCache[tripId] = trip;
+    return trip;
+  }catch{
+    tripDetailsCache[tripId] = null;
+    return null;
+  }
+}
+
+function durMinBetween(a, b){
+  if(!a || !b) return 0;
+  return Math.max(0, Math.round((new Date(b) - new Date(a)) / 60000));
+}
+
+async function openDetail(idx){
+  const j = lastJourneys[idx];
+  if(!j) return;
+  const overlay = document.getElementById("detailOverlay");
+  const modal = document.getElementById("detailModal");
+  overlay.classList.add("open");
+  document.body.style.overflow = "hidden";
+  modal.innerHTML = `<div class="detailloading"><div class="spinner"></div>Verbindungsdetails werden geladen …</div>`;
+
+  const legs = j.legs || [];
+  const tripDetails = await Promise.all(
+    legs.map(l => (l.walking ? null : fetchTripDetails(l.tripId)))
+  );
+
+  // Falls das Modal in der Zwischenzeit geschlossen wurde, nichts mehr rendern
+  if(!overlay.classList.contains("open")) return;
+  modal.innerHTML = renderDetailModal(j, legs, tripDetails);
+}
+
+function closeDetail(){
+  document.getElementById("detailOverlay").classList.remove("open");
+  document.body.style.overflow = "";
+}
+
+document.addEventListener("keydown", e => {
+  if(e.key === "Escape") closeDetail();
+});
+
+function toggleMids(id){
+  const el = document.getElementById(id);
+  const arrow = document.getElementById(id + "-arrow");
+  const willOpen = el.style.display === "none" || !el.style.display;
+  el.style.display = willOpen ? "block" : "none";
+  if(arrow) arrow.textContent = willOpen ? "▴" : "▾";
+}
+
+function renderDetailModal(j, legs, tripDetails){
+  const first = legs[0], last = legs[legs.length - 1];
+  const cancelled = legs.some(l => l.cancelled);
+  const dep = first.departure ?? first.plannedDeparture;
+  const arr = last.arrival ?? last.plannedArrival;
+  const durMin = durMinBetween(dep, arr);
+  const changes = legs.filter(l => !l.walking).length - 1;
+
+  const legsHtml = legs.map((leg, i) => {
+    if(leg.walking){
+      const wdep = leg.departure ?? leg.plannedDeparture;
+      const warr = leg.arrival ?? leg.plannedArrival;
+      const wmin = durMinBetween(wdep, warr);
+      return `<div class="walksep">🚶 Fußweg${wmin ? " · " + wmin + " Min" : ""}${leg.distance ? " · ca. " + Math.round(leg.distance) + " m" : ""}</div>`;
+    }
+
+    const trip = tripDetails[i] || leg;
+    const originId = leg.origin?.id, destId = leg.destination?.id;
+    const mids = (trip.stopovers || [])
+      .filter(s => s.stop?.id && s.stop.id !== originId && s.stop.id !== destId);
+
+    const legDep = leg.departure ?? leg.plannedDeparture;
+    const legArr = leg.arrival ?? leg.plannedArrival;
+    const legWarns = (leg.remarks || [])
+      .filter(r => r.type === "warning" || r.type === "status")
+      .map(r => stripTags(r.text || r.summary || ""))
+      .filter(t => t && t.length > 3 && !isIgnoredRemark(t));
+    const seenWarn = new Set();
+    const legWarnsUnique = legWarns.filter(t => (seenWarn.has(t) ? false : (seenWarn.add(t), true)));
+
+    const midId = `mids-${i}`;
+    const midsHtml = mids.length ? `
+        <div class="stoptoggle" onclick="toggleMids('${midId}')">
+          <span id="${midId}-arrow">▾</span> ${mids.length} Zwischenhalt${mids.length === 1 ? "" : "e"} · ${durMinBetween(legDep, legArr)} Min
+        </div>
+        <div class="stopmids" id="${midId}" style="display:none">
+          ${mids.map(s => {
+            const t = s.arrival ?? s.departure ?? s.plannedArrival ?? s.plannedDeparture;
+            const pt = s.plannedArrival ?? s.plannedDeparture;
+            const delaySec = s.arrivalDelay ?? s.departureDelay ?? 0;
+            const plat = s.arrivalPlatform || s.departurePlatform;
+            const platPlan = s.plannedArrivalPlatform || s.plannedDeparturePlatform;
+            return `<div class="stoprow mid${s.cancelled ? " cancelled" : ""}">
+              <div class="stoptime small">${delayHtml(pt, t, delaySec)}</div>
+              <div class="stopinfo small">${esc(s.stop?.name || "")}${plat ? gleisHtml(plat, platPlan, true) : ""}</div>
+            </div>`;
+          }).join("")}
+        </div>` : "";
+
+    return `
+    <div class="legblock">
+      <div class="leghead">
+        ${lineBadge(leg)}
+        ${leg.direction ? `<span class="legdir">Richtung ${esc(leg.direction)}</span>` : ""}
+        ${leg.cancelled ? `<span class="canceltag">FÄLLT AUS</span>` : ""}
+      </div>
+      <div class="legrail">
+        <div class="stoprow endpoint${leg.cancelled ? " cancelled" : ""}">
+          <div class="stoptime">${delayHtml(leg.plannedDeparture, legDep, leg.departureDelay)}</div>
+          <div class="stopinfo"><b>${esc(leg.origin?.name || "")}</b>${gleisHtml(leg.departurePlatform, leg.plannedDeparturePlatform, isTrain(leg))}</div>
+        </div>
+        ${midsHtml}
+        <div class="stoprow endpoint${leg.cancelled ? " cancelled" : ""}">
+          <div class="stoptime">${delayHtml(leg.plannedArrival, legArr, leg.arrivalDelay)}</div>
+          <div class="stopinfo"><b>${esc(leg.destination?.name || "")}</b>${gleisHtml(leg.arrivalPlatform, leg.plannedArrivalPlatform, isTrain(leg))}</div>
+        </div>
+      </div>
+      ${legWarnsUnique.length ? `<div class="warnings" style="border-top:none;background:transparent;padding:6px 0 0 2px">${
+        legWarnsUnique.slice(0, 3).map(t => `<div class="warn"><span class="ic">⚠️</span><span>${esc(t)}</span></div>`).join("")
+      }</div>` : ""}
+    </div>`;
+  }).join("");
+
+  return `
+    <div class="detailtop">
+      <div>
+        <div class="detailtitle">${esc(first.origin?.name || "")} <span class="arrow">→</span> ${esc(last.destination?.name || "")}</div>
+        <div class="detailmeta">
+          ${fmtTime(dep)}–${fmtTime(arr)} Uhr · Dauer ${durMin} Min · ${Math.max(0, changes)} Umstieg${changes === 1 ? "" : "e"}
+          ${cancelled ? ` · <span style="color:var(--red);font-weight:700">FÄLLT AUS</span>` : ""}
+        </div>
+      </div>
+      <button class="detailclose" onclick="closeDetail()" aria-label="Schließen">✕</button>
+    </div>
+    <div class="detailbody">${legsHtml}</div>
+  `;
+}
+
 /* ---------- Kompakte Wetteranzeige (Open-Meteo, kostenlos, ohne API-Key) ---------- */
 const WEATHER_LOCS = [
   { label:"Michendorf", lat:52.2963, lon:12.9539 },
@@ -700,7 +927,7 @@ function renderJourneys(journeys, q){
     return;
   }
 
-  box.innerHTML = journeys.map(j => {
+  box.innerHTML = journeys.map((j, idx) => {
     const legs = j.legs || [];
     const first = legs[0], last = legs[legs.length - 1];
     const cancelled = legs.some(l => l.cancelled);
@@ -730,20 +957,12 @@ function renderJourneys(journeys, q){
     }
     const shownWarns = warns.slice(0, 4);
 
-    const platforms = legs.filter(l => !l.walking).map(l => {
-      const dep = l.departurePlatform || l.plannedDeparturePlatform;
-      const arrp = l.arrivalPlatform || l.plannedArrivalPlatform;
-      if(!dep && !arrp) return null;
-      const parts = [];
-      if(dep) parts.push(`ab Gl. ${esc(dep)}`);
-      if(arrp) parts.push(`an Gl. ${esc(arrp)}`);
-      return `<b>${esc(l.line?.name || "")}</b> ${parts.join(" → ")}`;
-    }).filter(Boolean).join(" · ");
-
     const hasSEV = /SEV|Ersatz/i.test(chain);
 
     return `
-    <div class="card${cancelled ? " cancelled" : ""}">
+    <div class="card${cancelled ? " cancelled" : ""}"
+         onclick="openDetail(${idx})" role="button" tabindex="0"
+         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openDetail(${idx})}">
       <div class="cardtop">
         <div class="time">
           ${delayHtml(first.plannedDeparture, dep, first.departureDelay)}
@@ -759,13 +978,11 @@ function renderJourneys(journeys, q){
           <div class="meta">
             <span>Dauer <b>${durMin} Min</b></span>
             <span>Umstiege <b>${Math.max(0, changes)}</b></span>
-            ${platforms ? `<span>${platforms}</span>` : ""}
           </div>
         </div>
         <div class="time arrcol" style="text-align:right">
           ${delayHtml(last.plannedArrival, arr, last.arrivalDelay)}
           <small>an ${esc(last.destination?.name || "")}</small>
-          ${gleisHtml(last.arrivalPlatform, last.plannedArrivalPlatform, isTrain(last))}
         </div>
       </div>
       ${shownWarns.length ? `<div class="warnings">${
