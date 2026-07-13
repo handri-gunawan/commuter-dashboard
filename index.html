@@ -108,6 +108,20 @@
     background:#2b3a2f;border-color:var(--green);color:var(--green);
   }
   button:disabled{opacity:.5;cursor:wait}
+
+  .segment{
+    display:inline-flex;border:1px solid var(--line);border-radius:999px;
+    overflow:hidden;background:var(--panel);
+  }
+  .segment button{
+    border:none;border-radius:0;background:transparent;
+    padding:10px 16px;
+  }
+  .segment button:hover{background:var(--panel-2)}
+  .segment button.active{
+    background:var(--amber);color:#231a05;
+  }
+  .segment button + button{border-left:1px solid var(--line)}
   .transferctl{
     display:inline-flex;align-items:center;gap:8px;
     background:var(--panel);border:1px solid var(--green);
@@ -302,6 +316,10 @@
   <div class="controls">
     <button class="primary" id="btnRefresh" onclick="refresh()">⟳ Aktualisieren</button>
     <button id="btnReturn" onclick="toggleDirection()">Rückfahrt anzeigen</button>
+    <span class="segment" id="timeSegment">
+      <button id="btnTimeNow" onclick="setTimeMode('now')">Abfahrt: jetzt</button>
+      <button id="btnTimePreset" onclick="setTimeMode('preset')">Abfahrt: –</button>
+    </span>
     <button id="btnBf" onclick="toggleBarrierefrei()">♿ Barrierefrei &amp; mehr Umsteigezeit</button>
     <span class="transferctl" id="transferCtl" style="display:none">
       <label for="inTransfer">Umsteigezeit</label>
@@ -381,6 +399,7 @@ const API = "https://v6.vbb.transport.rest";
 
 const state = {
   direction: "hin",      // 'hin' | 'rueck'
+  timeMode: "now",       // 'auto' | 'now' | 'preset' — Standard: "Abfahrt: jetzt"
   barrierefrei: false,
   transferMin: 15,       // Mindest-Umsteigezeit im Barrierefrei-Modus (manuell änderbar)
   custom: null           // null oder {from, to, date, time, isArrival}
@@ -424,6 +443,33 @@ function isIgnoredRemark(text){
   return IGNORED_REMARK_PATTERNS.some(p => p.test(text));
 }
 
+// Voreingestellte Abfahrtszeit je Richtung und Wochentag
+function presetTime(){
+  const now = new Date();
+  const dow = now.getDay(); // 0 = So, 6 = Sa
+  const weekend = (dow === 0 || dow === 6);
+  if(state.direction === "hin"){
+    return weekend ? { h:13, m:30, label:"13:30 Uhr" } : { h:9, m:0, label:"9 Uhr" };
+  }
+  if(!weekend) return { h:17, m:0, label:"17 Uhr" };
+  return dow === 6 ? { h:18, m:0, label:"18 Uhr" } : { h:19, m:0, label:"19 Uhr" };
+}
+
+function updateTimeSegmentUI(){
+  const p = presetTime();
+  document.getElementById("btnTimePreset").textContent = `Abfahrt: ${p.label}`;
+  document.getElementById("btnTimeNow").classList.toggle("active", state.timeMode === "now");
+  document.getElementById("btnTimePreset").classList.toggle("active", state.timeMode === "preset");
+  document.getElementById("timeSegment").style.display = state.custom ? "none" : "";
+}
+
+function setTimeMode(mode){
+  state.custom = null;
+  document.getElementById("searchPanel").classList.remove("open");
+  state.timeMode = (state.timeMode === mode) ? "auto" : mode; // erneutes Klicken hebt Auswahl auf
+  refresh();
+}
+
 // Bestimmt die Standard-Abfrage je nach Wochentag und Richtung
 function buildStandardQuery(){
   const now = new Date();
@@ -431,6 +477,24 @@ function buildStandardQuery(){
   const weekend = (dow === 0 || dow === 6);
   const at = (h,m) => { const d = new Date(now); d.setHours(h,m,0,0); return d; };
   const later = (a,b) => a > b ? a : b;
+
+  // Explizite Auswahl über den "Abfahrt: jetzt / Voreinstellung"-Button hat Vorrang
+  if(state.timeMode === "now" || state.timeMode === "preset"){
+    const title = state.direction === "hin"
+      ? (weekend ? "Michendorf → Berlin Westend" : "Michendorf → Berlin Hbf")
+      : (weekend ? "Berlin Westend → Michendorf" : "Berlin Hbf → Michendorf");
+    const [fromQ, toQ] = state.direction === "hin"
+      ? ["Michendorf", weekend ? "Berlin Westend" : "Berlin Hauptbahnhof"]
+      : [weekend ? "Berlin Westend" : "Berlin Hauptbahnhof", "Michendorf"];
+
+    if(state.timeMode === "now"){
+      return { fromQ, toQ, when: now, isArrival:false, title,
+               desc:"Nächste Verbindungen ab jetzt" };
+    }
+    const p = presetTime();
+    return { fromQ, toQ, when: at(p.h, p.m), isArrival:false, title,
+             desc:`Feste Abfahrtszeit ${p.label} (unabhängig von der aktuellen Uhrzeit)` };
+  }
 
   if(state.direction === "hin"){
     if(!weekend){
@@ -481,6 +545,7 @@ async function refresh(){
   box.innerHTML = `<div class="state"><div class="spinner"></div>Verbindungen werden geladen …</div>`;
 
   try{
+    updateTimeSegmentUI();
     const q = state.custom ? buildCustomQuery() : buildStandardQuery();
 
     document.getElementById("routeTitle").innerHTML =
@@ -760,11 +825,13 @@ function runCustomSearch(){
   }
   state.custom = { from, to, date, time,
     isArrival: document.getElementById("inMode").value === "arrival" };
+  state.timeMode = "auto";
   refresh();
 }
 
 function resetToStandard(){
   state.custom = null;
+  state.timeMode = "auto";
   document.getElementById("searchPanel").classList.remove("open");
   refresh();
 }
