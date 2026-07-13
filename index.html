@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pendler-Dashboard · Michendorf ⇄ Berlin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,400..800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#101623;
+    --panel:#1a2333;
+    --panel-2:#212c40;
+    --line:#2c3a55;
+    --text:#f2f4f8;
+    --muted:#93a0b8;
+    --amber:#ffc24b;
+    --amber-dim:#c9963a;
+    --green:#4dd08a;
+    --red:#ff5c5c;
+    --re:#d8232a;
+    --sbahn:#00814d;
+    --ubahn:#14619f;
+    --bus:#95276e;
+    --tram:#cc0000;
+    --sev:#e8731a;
+    --walk:#5a6a85;
+    --radius:14px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{color-scheme:dark}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:"Archivo",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+    min-height:100vh;
+    padding:20px 16px 60px;
+  }
+  .wrap{max-width:860px;margin:0 auto}
+
+  /* ---------- Kopf ---------- */
+  .eyebrow{
+    font-size:11px;letter-spacing:.22em;text-transform:uppercase;
+    color:var(--muted);margin-bottom:6px;
+  }
+  h1{
+    font-size:clamp(22px,4.5vw,32px);
+    font-weight:800;letter-spacing:.01em;line-height:1.15;
+  }
+  h1 .arrow{color:var(--amber);padding:0 .15em}
+  .sub{
+    display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;
+    margin-top:8px;color:var(--muted);font-size:13px;
+  }
+  .sub b{color:var(--text);font-weight:600}
+  .livechip{
+    display:inline-flex;align-items:center;gap:6px;
+    font-size:12px;color:var(--amber);
+  }
+  .livechip .dot{
+    width:7px;height:7px;border-radius:50%;background:var(--amber);
+    animation:pulse 2s infinite;
+  }
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+  @media (prefers-reduced-motion:reduce){.livechip .dot{animation:none}}
+
+  /* ---------- Wetter-Leiste ---------- */
+  .weatherbar{
+    display:flex;flex-wrap:wrap;gap:10px;margin-top:14px;
+  }
+  .wchip{
+    display:flex;align-items:center;gap:10px;
+    background:var(--panel);border:1px solid var(--line);
+    border-radius:12px;padding:9px 14px;font-size:13px;
+  }
+  .wchip .wicon{font-size:22px;line-height:1}
+  .wchip .wloc{
+    font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--muted);margin-bottom:2px;
+  }
+  .wchip .wtemps{font-weight:700;color:var(--text)}
+  .wchip .wtemps .lo{color:var(--muted);font-weight:600}
+  .wchip .wprecip{
+    display:inline-flex;align-items:center;gap:3px;
+    margin-left:8px;color:var(--amber);font-weight:700;font-size:12.5px;
+  }
+  .wchip .wprecip.low{color:var(--muted);font-weight:600}
+
+  /* ---------- Buttons ---------- */
+  .controls{
+    display:flex;flex-wrap:wrap;gap:10px;margin:22px 0 10px;
+  }
+  button{
+    font-family:inherit;font-size:14px;font-weight:600;
+    border:1px solid var(--line);border-radius:999px;
+    background:var(--panel);color:var(--text);
+    padding:10px 18px;cursor:pointer;
+    transition:background .15s,border-color .15s,transform .06s;
+  }
+  button:hover{background:var(--panel-2);border-color:#3d4f73}
+  button:active{transform:scale(.97)}
+  button:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+  button.primary{
+    background:var(--amber);border-color:var(--amber);color:#231a05;
+  }
+  button.primary:hover{background:#ffd177}
+  button.active{
+    background:#2b3a2f;border-color:var(--green);color:var(--green);
+  }
+  button:disabled{opacity:.5;cursor:wait}
+  .transferctl{
+    display:inline-flex;align-items:center;gap:8px;
+    background:var(--panel);border:1px solid var(--green);
+    border-radius:999px;padding:6px 8px 6px 16px;
+    font-size:13px;font-weight:600;color:var(--green);
+  }
+  .transferctl input{
+    width:64px;font-family:inherit;font-size:14px;font-weight:700;
+    color:var(--text);background:var(--bg);
+    border:1px solid var(--line);border-radius:999px;
+    padding:5px 10px;text-align:center;
+  }
+  .transferctl input:focus{outline:2px solid var(--green);outline-offset:1px;border-color:var(--green)}
+
+  /* ---------- Eigene Suche ---------- */
+  .searchpanel{
+    background:var(--panel);border:1px solid var(--line);
+    border-radius:var(--radius);padding:18px;margin:10px 0 4px;
+    display:none;
+  }
+  .searchpanel.open{display:block}
+  .searchgrid{
+    display:grid;grid-template-columns:1fr 1fr;gap:12px;
+  }
+  .field{display:flex;flex-direction:column;gap:5px}
+  .field label{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+  .field input,.field select{
+    font-family:inherit;font-size:15px;color:var(--text);
+    background:var(--bg);border:1px solid var(--line);border-radius:8px;
+    padding:10px 12px;
+  }
+  .field input:focus,.field select:focus{outline:2px solid var(--amber);outline-offset:1px;border-color:var(--amber)}
+  .searchactions{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}
+  @media(max-width:560px){.searchgrid{grid-template-columns:1fr}}
+
+  /* ---------- Info-Panel ---------- */
+  .infopanel{
+    background:var(--panel);border:1px solid var(--line);
+    border-radius:var(--radius);padding:18px;margin:10px 0 4px;
+    display:none;
+  }
+  .infopanel.open{display:block}
+  .infosection{margin-bottom:18px}
+  .infosection:last-child{margin-bottom:0}
+  .infosection h3{
+    font-size:13px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--amber);margin-bottom:10px;display:flex;align-items:center;gap:8px;
+  }
+  .infoitem{
+    background:var(--bg);border:1px solid var(--line);border-radius:10px;
+    padding:12px 14px;margin-bottom:8px;font-size:13.5px;line-height:1.55;
+  }
+  .infoitem b{color:var(--text)}
+  .infoitem .until{
+    display:inline-block;margin-top:6px;font-size:12px;font-weight:700;
+    color:var(--green);
+  }
+  .infoitem .line{
+    display:inline-block;font-size:11px;font-weight:800;letter-spacing:.04em;
+    background:var(--panel-2);border-radius:5px;padding:2px 7px;margin-right:8px;
+  }
+  .eventcard{
+    display:flex;justify-content:space-between;gap:10px;align-items:center;
+    background:var(--bg);border:1px solid var(--line);border-radius:10px;
+    padding:12px 14px;margin-bottom:8px;font-size:13.5px;
+  }
+  .eventcard a{color:var(--amber);text-decoration:none;font-weight:600;white-space:nowrap}
+  .eventcard a:hover{text-decoration:underline}
+  .infonote{font-size:12px;color:var(--muted);line-height:1.5;margin-top:4px}
+
+  /* ---------- Statuszeile ---------- */
+  .statusbar{
+    display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;
+    margin:14px 2px 12px;font-size:13px;color:var(--muted);
+  }
+  .modechip{
+    background:var(--panel);border:1px solid var(--line);
+    border-radius:6px;padding:4px 10px;color:var(--text);font-weight:600;font-size:12px;
+  }
+  .modechip.bf{border-color:var(--green);color:var(--green)}
+
+  /* ---------- Fahrtkarten (Anzeigetafel-Stil) ---------- */
+  .journeys{display:flex;flex-direction:column;gap:14px}
+  .card{
+    background:var(--panel);border:1px solid var(--line);
+    border-radius:var(--radius);overflow:hidden;
+  }
+  .card.cancelled{opacity:.65;border-color:var(--red)}
+  .cardtop{
+    display:grid;grid-template-columns:auto 1fr auto;gap:16px;align-items:center;
+    padding:16px 18px 12px;
+  }
+  .time{
+    font-variant-numeric:tabular-nums;
+    font-size:clamp(24px,5vw,30px);font-weight:800;line-height:1;
+    color:var(--amber);
+  }
+  .time small{
+    display:block;font-size:11px;font-weight:600;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--muted);margin-top:5px;
+  }
+  .gleis{
+    display:inline-block;margin-top:6px;
+    font-size:12.5px;font-weight:800;letter-spacing:.04em;
+    color:var(--text);background:var(--panel-2);
+    border:1px solid var(--line);border-radius:5px;padding:2px 8px;
+  }
+  .gleis.changed{color:var(--red);border-color:var(--red)}
+  .gleis.unknown{color:var(--muted);font-weight:600}
+  .time .delay{font-size:14px;font-weight:700;margin-left:6px}
+  .delay.late{color:var(--red)}
+  .delay.ontime{color:var(--green)}
+  .time .old{
+    text-decoration:line-through;color:var(--muted);font-size:16px;font-weight:600;margin-right:6px;
+  }
+  .mid{min-width:0}
+  .legchain{
+    display:flex;flex-wrap:wrap;align-items:center;gap:6px 4px;
+  }
+  .legbadge{
+    display:inline-flex;align-items:center;gap:5px;
+    font-size:13px;font-weight:700;letter-spacing:.02em;
+    padding:4px 9px;border-radius:6px;color:#fff;white-space:nowrap;
+  }
+  .legbadge.walkb{background:transparent;border:1px dashed var(--walk);color:var(--muted);font-weight:500}
+  .chev{color:var(--walk);font-size:12px}
+  .meta{
+    margin-top:8px;font-size:12.5px;color:var(--muted);
+    display:flex;flex-wrap:wrap;gap:4px 14px;
+  }
+  .meta b{color:var(--text);font-weight:600}
+  .warnings{
+    border-top:1px solid var(--line);
+    background:rgba(255,194,75,.06);
+    padding:10px 18px;display:flex;flex-direction:column;gap:6px;
+  }
+  .warn{
+    font-size:12.5px;color:var(--amber);display:flex;gap:8px;line-height:1.45;
+  }
+  .warn.err{color:var(--red)}
+  .warn .ic{flex:none}
+  .sevtag{
+    display:inline-block;background:var(--sev);color:#fff;font-size:11px;
+    font-weight:800;letter-spacing:.08em;border-radius:4px;padding:2px 7px;
+    vertical-align:middle;margin-left:8px;
+  }
+  .canceltag{
+    display:inline-block;background:var(--red);color:#fff;font-size:11px;
+    font-weight:800;letter-spacing:.08em;border-radius:4px;padding:2px 7px;
+    vertical-align:middle;margin-left:8px;
+  }
+  .bftag{
+    display:inline-block;border:1px solid var(--green);color:var(--green);
+    font-size:11px;font-weight:700;border-radius:4px;padding:2px 7px;
+    vertical-align:middle;margin-left:8px;
+  }
+  @media(max-width:560px){
+    .cardtop{grid-template-columns:1fr;gap:10px}
+    .arrcol{text-align:left !important}
+  }
+
+  /* ---------- Zustände ---------- */
+  .state{
+    text-align:center;padding:50px 20px;color:var(--muted);
+    background:var(--panel);border:1px dashed var(--line);border-radius:var(--radius);
+  }
+  .state h3{color:var(--text);margin-bottom:8px;font-size:17px}
+  .spinner{
+    width:34px;height:34px;margin:0 auto 16px;border-radius:50%;
+    border:3px solid var(--line);border-top-color:var(--amber);
+    animation:spin .9s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .footer{
+    margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.6;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">Pendler-Dashboard · Familie Michendorf</div>
+    <h1 id="routeTitle">Michendorf <span class="arrow">→</span> Berlin Hbf</h1>
+    <div class="sub">
+      <span id="modeDesc">Verbindungen werden geladen …</span>
+      <span class="livechip"><span class="dot"></span><span id="lastUpdate">Live-Daten VBB</span></span>
+    </div>
+    <div class="weatherbar" id="weatherBar"></div>
+  </header>
+
+  <div class="controls">
+    <button class="primary" id="btnRefresh" onclick="refresh()">⟳ Aktualisieren</button>
+    <button id="btnReturn" onclick="toggleDirection()">Rückfahrt anzeigen</button>
+    <button id="btnBf" onclick="toggleBarrierefrei()">♿ Barrierefrei &amp; mehr Umsteigezeit</button>
+    <span class="transferctl" id="transferCtl" style="display:none">
+      <label for="inTransfer">Umsteigezeit</label>
+      <input id="inTransfer" type="number" min="0" max="60" step="1" value="15"
+             inputmode="numeric" onchange="onTransferChange()"
+             aria-label="Mindest-Umsteigezeit in Minuten"> Min
+    </span>
+    <button id="btnCustom" onclick="toggleSearchPanel()">🔍 Eigene Suche</button>
+    <button id="btnInfo" onclick="toggleInfoPanel()">ℹ️ Alle Streckeninfos</button>
+  </div>
+
+  <div class="searchpanel" id="searchPanel">
+    <div class="searchgrid">
+      <div class="field">
+        <label for="inFrom">Abfahrt (Haltestelle)</label>
+        <input id="inFrom" type="text" placeholder="z. B. Michendorf" value="Michendorf">
+      </div>
+      <div class="field">
+        <label for="inTo">Ziel (Haltestelle)</label>
+        <input id="inTo" type="text" placeholder="z. B. Berlin Westend">
+      </div>
+      <div class="field">
+        <label for="inDate">Datum</label>
+        <input id="inDate" type="date">
+      </div>
+      <div class="field">
+        <label for="inTime">Uhrzeit</label>
+        <input id="inTime" type="time">
+      </div>
+      <div class="field">
+        <label for="inMode">Zeit gilt als</label>
+        <select id="inMode">
+          <option value="departure">Abfahrtszeit</option>
+          <option value="arrival">Ankunftszeit (spätestens dort sein)</option>
+        </select>
+      </div>
+    </div>
+    <div class="searchactions">
+      <button class="primary" onclick="runCustomSearch()">Verbindungen suchen</button>
+      <button onclick="resetToStandard()">Zurück zur Standard-Ansicht</button>
+    </div>
+  </div>
+
+  <div class="infopanel" id="infoPanel">
+    <div class="infosection">
+      <h3>🚧 Baustellen, Sanierungen &amp; Störungen entlang eurer Strecke</h3>
+      <div id="infoDisruptions"><div class="infonote">Wird beim Öffnen geladen …</div></div>
+    </div>
+    <div class="infosection">
+      <h3>🎉 Großveranstaltungen in Berlin</h3>
+      <div id="infoEvents"></div>
+    </div>
+  </div>
+
+  <div class="statusbar">
+    <span class="modechip" id="chipMode">–</span>
+    <span class="modechip bf" id="chipBf" style="display:none">♿ Barrierefrei · min. 10 Min Umstieg</span>
+    <span id="whenInfo"></span>
+  </div>
+
+  <div class="journeys" id="journeys">
+    <div class="state"><div class="spinner"></div>Verbindungen werden geladen …</div>
+  </div>
+
+  <div class="footer">
+    Datenquelle: VBB-Echtzeitdaten (v6.vbb.transport.rest). Angezeigt werden geplante und tatsächliche Zeiten,
+    Gleise, Verspätungsgründe, Ausfälle und Ersatzverkehre (SEV), soweit vom VBB gemeldet.
+    Standard-Logik: Mo–Fr Hinfahrt Michendorf → Berlin Hbf (ab ca. 8:45 Uhr) und Rückfahrt ab 17 Uhr ·
+    Sa/So Hinfahrt Michendorf → Berlin Westend (Ankunft bis 14:45 Uhr), Rückfahrt Sa ab 18 Uhr / So ab 19 Uhr.
+    Barrierefrei-Modus: nur vollständig rollstuhlgeeignete Verbindungen mit mindestens 15 Minuten Umsteigezeit
+    (im Eingabefeld neben dem Button von 0 bis 60 Minuten frei einstellbar).
+  </div>
+</div>
+
+<script>
+const API = "https://v6.vbb.transport.rest";
+
+const state = {
+  direction: "hin",      // 'hin' | 'rueck'
+  barrierefrei: false,
+  transferMin: 15,       // Mindest-Umsteigezeit im Barrierefrei-Modus (manuell änderbar)
+  custom: null           // null oder {from, to, date, time, isArrival}
+};
+
+const stationCache = {};
+let lastJourneys = [];
+
+async function resolveStation(query){
+  const key = query.trim().toLowerCase();
+  if(stationCache[key]) return stationCache[key];
+  const res = await fetch(`${API}/locations?query=${encodeURIComponent(query)}&results=3&fuzzy=true&stops=true&addresses=false&poi=false`);
+  if(!res.ok) throw new Error("Haltestellensuche fehlgeschlagen");
+  const list = await res.json();
+  const stop = list.find(l => l.type === "stop" || l.type === "station");
+  if(!stop) throw new Error(`Keine Haltestelle gefunden für „${query}“`);
+  stationCache[key] = stop;
+  return stop;
+}
+
+function fmtTime(iso){
+  if(!iso) return "–";
+  return new Date(iso).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
+}
+function fmtDate(d){
+  return d.toLocaleDateString("de-DE",{weekday:"short",day:"2-digit",month:"2-digit"});
+}
+function esc(s){
+  return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+function stripTags(s){ return String(s ?? "").replace(/<[^>]*>/g," ").replace(/\s+/g," ").trim(); }
+
+// Hinweise, die für die Familie nicht relevant sind und überall ausgeblendet werden
+const IGNORED_REMARK_PATTERNS = [
+  /fahrradmitnahme\s*(möglich|begrenzt möglich)?/i,
+  /nur\s*2\.?\s*klasse/i,
+  /\bdb\s*regio\b/i,
+  /wlan\s*(verfügbar|vorhanden)?/i
+];
+function isIgnoredRemark(text){
+  return IGNORED_REMARK_PATTERNS.some(p => p.test(text));
+}
+
+// Bestimmt die Standard-Abfrage je nach Wochentag und Richtung
+function buildStandardQuery(){
+  const now = new Date();
+  const dow = now.getDay(); // 0 = So, 6 = Sa
+  const weekend = (dow === 0 || dow === 6);
+  const at = (h,m) => { const d = new Date(now); d.setHours(h,m,0,0); return d; };
+  const later = (a,b) => a > b ? a : b;
+
+  if(state.direction === "hin"){
+    if(!weekend){
+      return { fromQ:"Michendorf", toQ:"Berlin Hauptbahnhof",
+               when: later(now, at(8,45)), isArrival:false,
+               title:"Michendorf → Berlin Hbf",
+               desc:"Werktags · Arbeitsweg, Abfahrt ab ca. 9 Uhr" };
+    }
+    const target = at(14,45);
+    if(now < target){
+      return { fromQ:"Michendorf", toQ:"Berlin Westend",
+               when: target, isArrival:true,
+               title:"Michendorf → Berlin Westend",
+               desc:"Wochenende · Ankunft bis 14:45 Uhr (Programm 15 Uhr)" };
+    }
+    return { fromQ:"Michendorf", toQ:"Berlin Westend",
+             when: now, isArrival:false,
+             title:"Michendorf → Berlin Westend",
+             desc:"Wochenende · nächste Verbindungen ab jetzt" };
+  } else {
+    if(!weekend){
+      return { fromQ:"Berlin Hauptbahnhof", toQ:"Michendorf",
+               when: later(now, at(17,0)), isArrival:false,
+               title:"Berlin Hbf → Michendorf",
+               desc:"Werktags · Rückfahrt am Abend (ab 17 Uhr)" };
+    }
+    const start = dow === 6 ? at(18,0) : at(19,0);
+    return { fromQ:"Berlin Westend", toQ:"Michendorf",
+             when: later(now, start), isArrival:false,
+             title:"Berlin Westend → Michendorf",
+             desc: dow === 6 ? "Samstag · Rückfahrt ab 18 Uhr" : "Sonntag · Rückfahrt ab 19 Uhr" };
+  }
+}
+
+function buildCustomQuery(){
+  const c = state.custom;
+  const when = new Date(`${c.date}T${c.time}:00`);
+  return { fromQ:c.from, toQ:c.to, when, isArrival:c.isArrival,
+           title:`${c.from} → ${c.to}`,
+           desc:`Eigene Suche · ${c.isArrival ? "Ankunft" : "Abfahrt"} ${fmtDate(when)}, ${fmtTime(when.toISOString())} Uhr` };
+}
+
+async function refresh(){
+  const btn = document.getElementById("btnRefresh");
+  btn.disabled = true;
+  loadWeather();
+  const box = document.getElementById("journeys");
+  box.innerHTML = `<div class="state"><div class="spinner"></div>Verbindungen werden geladen …</div>`;
+
+  try{
+    const q = state.custom ? buildCustomQuery() : buildStandardQuery();
+
+    document.getElementById("routeTitle").innerHTML =
+      esc(q.title).replace("→", `<span class="arrow">→</span>`);
+    document.getElementById("modeDesc").textContent = q.desc;
+    document.getElementById("chipMode").textContent =
+      state.custom ? "Eigene Suche" : (state.direction === "hin" ? "Hinfahrt" : "Rückfahrt");
+    const chipBf = document.getElementById("chipBf");
+    chipBf.style.display = state.barrierefrei ? "" : "none";
+    chipBf.textContent = `♿ Barrierefrei · min. ${state.transferMin} Min Umstieg`;
+    document.getElementById("whenInfo").textContent =
+      `${q.isArrival ? "Ankunft bis" : "Abfahrt ab"} ${fmtDate(q.when)}, ${fmtTime(q.when.toISOString())} Uhr`;
+
+    const [from, to] = await Promise.all([resolveStation(q.fromQ), resolveStation(q.toQ)]);
+
+    const params = new URLSearchParams({
+      from: from.id, to: to.id,
+      results: "6", remarks: "true", language: "de", stopovers: "false"
+    });
+    params.set(q.isArrival ? "arrival" : "departure", q.when.toISOString());
+    if(state.barrierefrei){
+      params.set("accessibility","complete");
+      params.set("transferTime", String(state.transferMin));
+    }
+
+    const res = await fetch(`${API}/journeys?${params}`);
+    if(!res.ok) throw new Error(`VBB-Server antwortet nicht (HTTP ${res.status})`);
+    const data = await res.json();
+    lastJourneys = data.journeys || [];
+    renderJourneys(lastJourneys, q);
+    if(document.getElementById("infoPanel").classList.contains("open")){
+      renderDisruptions();
+    }
+
+    document.getElementById("lastUpdate").textContent =
+      "Stand: " + new Date().toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"}) + " Uhr";
+  }catch(err){
+    box.innerHTML = `<div class="state">
+      <h3>Daten konnten nicht geladen werden</h3>
+      <p>${esc(err.message)}.<br>Bitte Internetverbindung prüfen und erneut auf „Aktualisieren“ tippen.</p>
+    </div>`;
+  }finally{
+    btn.disabled = false;
+  }
+}
+
+function lineBadge(leg){
+  if(leg.walking){
+    const min = Math.max(1, Math.round((new Date(leg.arrival ?? leg.plannedArrival) - new Date(leg.departure ?? leg.plannedDeparture)) / 60000)) || "";
+    return `<span class="legbadge walkb">🚶 Fußweg${min ? " " + min + " Min" : ""}</span>`;
+  }
+  const name = leg.line?.name || leg.line?.id || "Fahrt";
+  const prod = leg.line?.product || "";
+  const isSEV = /sev|ersatz/i.test(name) ||
+    (leg.remarks || []).some(r => /ersatzverkehr|sev/i.test(r.text || r.summary || ""));
+  let bg = "var(--walk)";
+  if(isSEV) bg = "var(--sev)";
+  else if(prod === "suburban") bg = "var(--sbahn)";
+  else if(prod === "subway") bg = "var(--ubahn)";
+  else if(prod === "tram") bg = "var(--tram)";
+  else if(prod === "bus") bg = "var(--bus)";
+  else if(prod === "regional" || prod === "regionalExpress" || prod === "express") bg = "var(--re)";
+  return `<span class="legbadge" style="background:${bg}">${isSEV ? "🚌 " : ""}${esc(name)}${isSEV ? " · SEV" : ""}</span>`;
+}
+
+// Gleis mit Erkennung kurzfristiger Gleiswechsel
+function gleisHtml(actual, planned, isTrainLeg){
+  const a = actual || planned;
+  if(!a){
+    // Nur bei Zügen auf fehlende Gleisangabe hinweisen (Busse haben keine Gleise)
+    return isTrainLeg ? `<span class="gleis unknown">Gleis folgt</span>` : "";
+  }
+  if(actual && planned && String(actual) !== String(planned)){
+    return `<span class="gleis changed">Gleis ${esc(actual)} ⚠ statt ${esc(planned)}</span>`;
+  }
+  return `<span class="gleis">Gleis ${esc(a)}</span>`;
+}
+function isTrain(leg){
+  const p = leg.line?.product || "";
+  return ["regional","regionalExpress","express","suburban","national","nationalExpress"].includes(p);
+}
+
+/* ---------- Kompakte Wetteranzeige (Open-Meteo, kostenlos, ohne API-Key) ---------- */
+const WEATHER_LOCS = [
+  { label:"Michendorf", lat:52.2963, lon:12.9539 },
+  { label:"Berlin",     lat:52.5200, lon:13.4050 }
+];
+// WMO-Wettercode → Icon + Kurzbezeichnung
+function weatherIcon(code, precipProb, tMax){
+  const snow = tMax <= 1;
+  if([95,96,99].includes(code)) return "⛈️";
+  if([71,73,75,77,85,86].includes(code)) return "🌨️";
+  if([61,63,65,80,81,82].includes(code)) return snow ? "🌨️" : "🌧️";
+  if([51,53,55,56,57].includes(code)) return "🌦️";
+  if([45,48].includes(code)) return "🌫️";
+  if([1,2].includes(code)) return "🌤️";
+  if(code === 3) return "☁️";
+  if(code === 0) return "☀️";
+  if(precipProb >= 50) return snow ? "🌨️" : "🌧️";
+  return "🌤️";
+}
+
+async function loadWeather(){
+  const box = document.getElementById("weatherBar");
+  try{
+    const chips = await Promise.all(WEATHER_LOCS.map(async loc => {
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}`
+        + `&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode`
+        + `&timezone=Europe%2FBerlin&forecast_days=1`;
+      const res = await fetch(url);
+      if(!res.ok) throw new Error("Wetterdaten nicht verfügbar");
+      const d = await res.json();
+      const tMax = Math.round(d.daily.temperature_2m_max[0]);
+      const tMin = Math.round(d.daily.temperature_2m_min[0]);
+      const precip = Math.round(d.daily.precipitation_probability_max[0] ?? 0);
+      const code = d.daily.weathercode[0];
+      const icon = weatherIcon(code, precip, tMax);
+      const snowLikely = tMax <= 1 && precip >= 30;
+      return `<div class="wchip">
+        <span class="wicon">${icon}</span>
+        <div>
+          <div class="wloc">${esc(loc.label)}</div>
+          <span class="wtemps">${tMax}°<span class="lo">/${tMin}°</span></span>
+          <span class="wprecip${precip < 30 ? " low" : ""}">${snowLikely ? "❄️" : "💧"} ${precip}%</span>
+        </div>
+      </div>`;
+    }));
+    box.innerHTML = chips.join("");
+  }catch(err){
+    box.innerHTML = `<div class="wchip"><span class="wicon">⚠️</span><div><div class="wloc">Wetter</div><span class="wtemps" style="color:var(--muted);font-weight:600">nicht verfügbar</span></div></div>`;
+  }
+}
+
+function delayHtml(planned, actual, delaySec){
+  if(!planned || !actual) return `<span>${esc(fmtTime(actual || planned))}</span>`;
+  const d = Math.round((delaySec ?? 0) / 60);
+  if(d > 0){
+    return `<span class="old">${fmtTime(planned)}</span>${fmtTime(actual)}<span class="delay late">+${d}</span>`;
+  }
+  return `${fmtTime(actual)}<span class="delay ontime">pünktl.</span>`;
+}
+
+function renderJourneys(journeys, q){
+  const box = document.getElementById("journeys");
+  if(!journeys.length){
+    box.innerHTML = `<div class="state">
+      <h3>Keine passenden Verbindungen gefunden</h3>
+      <p>${state.barrierefrei
+          ? `Im Barrierefrei-Modus werden nur vollständig rollstuhlgeeignete Verbindungen mit mindestens ${state.transferMin} Min Umsteigezeit angezeigt. Ggf. Umsteigezeit verringern, Modus deaktivieren oder Zeitraum anpassen.`
+          : "Bitte Zeitraum anpassen oder erneut aktualisieren."}</p>
+    </div>`;
+    return;
+  }
+
+  box.innerHTML = journeys.map(j => {
+    const legs = j.legs || [];
+    const first = legs[0], last = legs[legs.length - 1];
+    const cancelled = legs.some(l => l.cancelled);
+
+    const dep = first.departure ?? first.plannedDeparture;
+    const arr = last.arrival ?? last.plannedArrival;
+    const durMin = Math.round((new Date(arr) - new Date(dep)) / 60000);
+    const changes = legs.filter(l => !l.walking).length - 1;
+
+    const chain = legs.map(lineBadge).join(`<span class="chev">›</span>`);
+
+    // Warnungen, Verspätungsgründe, Ersatzverkehr aus allen Abschnitten sammeln
+    const seen = new Set();
+    const warns = [];
+    for(const l of legs){
+      if(l.cancelled){
+        const t = `${l.line?.name || "Abschnitt"} fällt aus`;
+        if(!seen.has(t)){ seen.add(t); warns.push({txt:t, err:true}); }
+      }
+      for(const r of (l.remarks || [])){
+        if(r.type !== "warning" && r.type !== "status") continue;
+        const t = stripTags(r.text || r.summary || "");
+        if(!t || t.length < 4 || seen.has(t) || isIgnoredRemark(t)) continue;
+        seen.add(t);
+        warns.push({txt:t, err:/fällt aus|ausfall|gesperrt/i.test(t)});
+      }
+    }
+    const shownWarns = warns.slice(0, 4);
+
+    const platforms = legs.filter(l => !l.walking).map(l => {
+      const dep = l.departurePlatform || l.plannedDeparturePlatform;
+      const arrp = l.arrivalPlatform || l.plannedArrivalPlatform;
+      if(!dep && !arrp) return null;
+      const parts = [];
+      if(dep) parts.push(`ab Gl. ${esc(dep)}`);
+      if(arrp) parts.push(`an Gl. ${esc(arrp)}`);
+      return `<b>${esc(l.line?.name || "")}</b> ${parts.join(" → ")}`;
+    }).filter(Boolean).join(" · ");
+
+    const hasSEV = /SEV|Ersatz/i.test(chain);
+
+    return `
+    <div class="card${cancelled ? " cancelled" : ""}">
+      <div class="cardtop">
+        <div class="time">
+          ${delayHtml(first.plannedDeparture, dep, first.departureDelay)}
+          <small>ab ${esc(first.origin?.name || "")}</small>
+          ${gleisHtml(first.departurePlatform, first.plannedDeparturePlatform, isTrain(first))}
+        </div>
+        <div class="mid">
+          <div class="legchain">${chain}
+            ${hasSEV ? `<span class="sevtag">ERSATZVERKEHR</span>` : ""}
+            ${cancelled ? `<span class="canceltag">FÄLLT AUS</span>` : ""}
+            ${state.barrierefrei ? `<span class="bftag">♿ geeignet</span>` : ""}
+          </div>
+          <div class="meta">
+            <span>Dauer <b>${durMin} Min</b></span>
+            <span>Umstiege <b>${Math.max(0, changes)}</b></span>
+            ${platforms ? `<span>${platforms}</span>` : ""}
+          </div>
+        </div>
+        <div class="time arrcol" style="text-align:right">
+          ${delayHtml(last.plannedArrival, arr, last.arrivalDelay)}
+          <small>an ${esc(last.destination?.name || "")}</small>
+          ${gleisHtml(last.arrivalPlatform, last.plannedArrivalPlatform, isTrain(last))}
+        </div>
+      </div>
+      ${shownWarns.length ? `<div class="warnings">${
+        shownWarns.map(w => `<div class="warn${w.err ? " err" : ""}"><span class="ic">${w.err ? "⛔" : "⚠️"}</span><span>${esc(w.txt)}</span></div>`).join("")
+      }</div>` : ""}
+    </div>`;
+  }).join("");
+}
+
+/* ---------- Button-Logik ---------- */
+function toggleDirection(){
+  state.custom = null;
+  state.direction = state.direction === "hin" ? "rueck" : "hin";
+  document.getElementById("btnReturn").textContent =
+    state.direction === "hin" ? "Rückfahrt anzeigen" : "Hinfahrt anzeigen";
+  refresh();
+}
+
+function toggleBarrierefrei(){
+  state.barrierefrei = !state.barrierefrei;
+  document.getElementById("btnBf").classList.toggle("active", state.barrierefrei);
+  document.getElementById("transferCtl").style.display = state.barrierefrei ? "" : "none";
+  refresh();
+}
+
+function onTransferChange(){
+  const el = document.getElementById("inTransfer");
+  let v = parseInt(el.value, 10);
+  if(isNaN(v) || v < 0) v = 15;
+  if(v > 60) v = 60;
+  el.value = v;
+  state.transferMin = v;
+  if(state.barrierefrei) refresh();
+}
+
+function toggleSearchPanel(){
+  const p = document.getElementById("searchPanel");
+  p.classList.toggle("open");
+  if(p.classList.contains("open")){
+    const now = new Date();
+    if(!document.getElementById("inDate").value)
+      document.getElementById("inDate").value = now.toISOString().slice(0,10);
+    if(!document.getElementById("inTime").value)
+      document.getElementById("inTime").value = now.toTimeString().slice(0,5);
+    document.getElementById("inFrom").focus();
+  }
+}
+
+function runCustomSearch(){
+  const from = document.getElementById("inFrom").value.trim();
+  const to = document.getElementById("inTo").value.trim();
+  const date = document.getElementById("inDate").value;
+  const time = document.getElementById("inTime").value;
+  if(!from || !to || !date || !time){
+    alert("Bitte Abfahrt, Ziel, Datum und Uhrzeit angeben.");
+    return;
+  }
+  state.custom = { from, to, date, time,
+    isArrival: document.getElementById("inMode").value === "arrival" };
+  refresh();
+}
+
+function resetToStandard(){
+  state.custom = null;
+  document.getElementById("searchPanel").classList.remove("open");
+  refresh();
+}
+
+function toggleInfoPanel(){
+  const p = document.getElementById("infoPanel");
+  p.classList.toggle("open");
+  if(p.classList.contains("open")){
+    renderDisruptions();
+    renderEvents();
+  }
+}
+
+function fmtValidUntil(r){
+  // VBB liefert Gültigkeitszeiträume nicht einheitlich; wir zeigen, was vorhanden ist.
+  const until = r.validUntil || r.toDate || r.until;
+  if(!until) return "";
+  try{
+    const d = new Date(until);
+    if(isNaN(d)) return "";
+    return `voraussichtlich bis ${d.toLocaleDateString("de-DE",{day:"2-digit",month:"2-digit",year:"numeric"})}`;
+  }catch{ return ""; }
+}
+
+function renderDisruptions(){
+  const box = document.getElementById("infoDisruptions");
+  if(!lastJourneys.length){
+    box.innerHTML = `<div class="infonote">Noch keine Verbindungen geladen. Erst „Aktualisieren“ tippen, dann erscheinen hier alle gemeldeten Baustellen, Sanierungen und Störungen entlang der aktuell angezeigten Strecke.</div>`;
+    return;
+  }
+  const seen = new Set();
+  const items = [];
+  for(const j of lastJourneys){
+    for(const l of (j.legs || [])){
+      const lineName = l.line?.name || "";
+      for(const r of (l.remarks || [])){
+        if(!["warning","status","hint"].includes(r.type)) continue;
+        const text = stripTags(r.text || r.summary || "");
+        if(!text || text.length < 6 || isIgnoredRemark(text)) continue;
+        const key = lineName + "|" + text;
+        if(seen.has(key)) continue;
+        seen.add(key);
+        items.push({ line: lineName, text, until: fmtValidUntil(r),
+          isSEV: /ersatzverkehr|sev\b/i.test(text),
+          isConstruction: /bauarbeiten|baustelle|saniert|sanierung|erneuer|umbau|instandsetzung/i.test(text) });
+      }
+    }
+  }
+  if(!items.length){
+    box.innerHTML = `<div class="infonote">Für die aktuell angezeigten Verbindungen sind keine Baustellen, Sanierungen oder Störungen gemeldet.</div>`;
+    return;
+  }
+  box.innerHTML = items.map(it => `
+    <div class="infoitem">
+      ${it.line ? `<span class="line">${esc(it.line)}</span>` : ""}${esc(it.text)}
+      ${it.until ? `<div class="until">🕒 ${esc(it.until)}</div>` : (it.isSEV || it.isConstruction ? `<div class="infonote" style="margin-top:6px">Enddatum vom VBB nicht angegeben – wir zeigen es an, sobald es gemeldet wird.</div>` : "")}
+    </div>`).join("");
+}
+
+function renderEvents(){
+  // Es gibt keine kostenlose, live abrufbare Schnittstelle für Berliner Großveranstaltungen.
+  // Daher verlinken wir direkt auf die offiziellen, tagesaktuellen Kalender statt veraltete Daten zu zeigen.
+  const box = document.getElementById("infoEvents");
+  const sources = [
+    { name: "Berlin.de – Veranstaltungskalender & Wochenend-Tipps", url: "https://www.berlin.de/events/" },
+    { name: "visitBerlin – Top-Veranstaltungen & Kongresskalender", url: "https://www.visitberlin.de/de/veranstaltungskalender-berlin" },
+    { name: "Messe Berlin – Messen & Kongresse", url: "https://www.messe-berlin.de/de/veranstaltungen/veranstaltungskalender" }
+  ];
+  box.innerHTML = sources.map(s => `
+    <div class="eventcard">
+      <span>${esc(s.name)}</span>
+      <a href="${esc(s.url)}" target="_blank" rel="noopener">Öffnen ↗</a>
+    </div>`).join("") +
+    `<div class="infonote">Für Großveranstaltungen gibt es keine kostenlose Echtzeit-Schnittstelle, deshalb verlinken wir direkt auf die offiziellen, tagesaktuellen Kalender.
+    Tipp: Bei großen Events (Messen, CSD, Marathon, Festival of Lights u. Ä.) lohnt vorher ein Blick in die Baustellen-Sektion oben – der VBB weist Zusatzhalte und Störungen wegen Groß­veranstaltungen dort meist gesondert aus.</div>`;
+}
+
+refresh();
+</script>
+</body>
+</html>
