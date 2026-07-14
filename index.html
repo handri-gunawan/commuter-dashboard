@@ -48,6 +48,36 @@
     font-weight:800;letter-spacing:.01em;line-height:1.15;
   }
   h1 .arrow{color:var(--amber);padding:0 .15em}
+
+  .titlebtn{
+    display:inline-flex;align-items:center;gap:10px;
+    background:transparent;border:none;padding:2px 2px;margin:-2px;
+    cursor:pointer;text-align:left;color:inherit;font:inherit;
+    border-radius:8px;
+  }
+  .titlebtn:hover h1{color:var(--amber)}
+  .titlebtn:focus-visible{outline:2px solid var(--amber);outline-offset:3px}
+  .titlechevron{
+    font-size:15px;color:var(--muted);transition:transform .15s ease;flex:none;
+    transform:translateY(1px);
+  }
+  .titlebtn[aria-expanded="true"] .titlechevron{transform:rotate(180deg);color:var(--amber)}
+  .routemenu{
+    display:none;flex-direction:column;gap:5px;
+    background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:9px;margin-top:10px;max-width:440px;
+  }
+  .routemenu.open{display:flex}
+  .routeoption{
+    display:flex;flex-direction:column;align-items:flex-start;gap:2px;
+    width:100%;text-align:left;background:transparent;border:1px solid transparent;
+    border-radius:9px;padding:9px 12px;cursor:pointer;color:var(--text);
+    font-family:inherit;
+  }
+  .routeoption:hover{background:var(--panel-2)}
+  .routeoption.active{border-color:var(--amber);background:rgba(255,194,75,.08)}
+  .routeoption .rlabel{font-size:14.5px;font-weight:700}
+  .routeoption .rmeta{font-size:11.5px;color:var(--muted)}
   .sub{
     display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;
     margin-top:8px;color:var(--muted);font-size:13px;
@@ -379,7 +409,12 @@
 
   <header>
     <div class="eyebrow">Pendler-Dashboard · Familie Michendorf</div>
-    <h1 id="routeTitle">Michendorf <span class="arrow">→</span> Berlin Hbf</h1>
+    <button type="button" class="titlebtn" id="routeTitleBtn" onclick="toggleRouteMenu()"
+            aria-haspopup="listbox" aria-expanded="false">
+      <h1 id="routeTitle">Michendorf <span class="arrow">→</span> Berlin Hbf</h1>
+      <span class="titlechevron">▾</span>
+    </button>
+    <div class="routemenu" id="routeMenu" role="listbox" aria-label="Verbindung auswählen"></div>
     <div class="sub">
       <span id="modeDesc">Verbindungen werden geladen …</span>
       <span class="livechip"><span class="dot"></span><span id="lastUpdate">Live-Daten VBB</span></span>
@@ -465,6 +500,8 @@
     Sa/So Hinfahrt Michendorf → Berlin Westend (Ankunft bis 14:45 Uhr), Rückfahrt Sa ab 18 Uhr / So ab 19 Uhr.
     Barrierefrei-Modus: nur vollständig rollstuhlgeeignete Verbindungen mit mindestens 15 Minuten Umsteigezeit
     (im Eingabefeld neben dem Button von 0 bis 60 Minuten frei einstellbar).
+    Über den Titel oben lässt sich manuell eine feste Verbindung auswählen (Berlin Hbf, Berlin Westend,
+    S-Bahn Griebnitzsee, Bad Belzig) – unabhängig von der automatischen Pendlerlogik.
   </div>
 </div>
 
@@ -480,8 +517,69 @@ const state = {
   timeMode: "now",       // 'auto' | 'now' | 'preset' — Standard: "Abfahrt: jetzt"
   barrierefrei: false,
   transferMin: 15,       // Mindest-Umsteigezeit im Barrierefrei-Modus (manuell änderbar)
-  custom: null           // null oder {from, to, date, time, isArrival}
+  custom: null,          // null oder {from, to, date, time, isArrival}
+  route: "auto"          // 'auto' oder eine ROUTES-id — manuelle Auswahl über den Titel oben
 };
+
+// Über den Titel im Header manuell auswählbare Verbindungen.
+// "auto" ist die bestehende Pendlerlogik (Werktags Berlin Hbf / Wochenende Berlin Westend, zeitabhängig).
+const ROUTES = [
+  { id:"auto", label:"Automatisch (Pendlerzeiten)",
+    meta:"Werktags Berlin Hbf, Wochenende Berlin Westend – je nach Uhrzeit" },
+  { id:"hbf", label:"Michendorf → Berlin Hbf",
+    from:"Michendorf", queryTo:"Berlin Hauptbahnhof", displayTo:"Berlin Hbf",
+    presetH:9, presetM:0, meta:"Voreinstellung 9 Uhr" },
+  { id:"westend", label:"Michendorf → Berlin Westend",
+    from:"Michendorf", queryTo:"Berlin Westend", displayTo:"Berlin Westend",
+    presetH:13, presetM:30, meta:"Voreinstellung 13:30 Uhr" },
+  { id:"griebnitzsee", label:"Michendorf → S-Bahn Griebnitzsee",
+    from:"Michendorf", queryTo:"Griebnitzsee", displayTo:"S-Bahn Griebnitzsee",
+    presetH:9, presetM:0, meta:"Voreinstellung 9 Uhr" },
+  { id:"belzig", label:"Michendorf → Bad Belzig",
+    from:"Michendorf", queryTo:"Bad Belzig", displayTo:"Bad Belzig",
+    presetH:7, presetM:0, meta:"Voreinstellung 7 Uhr" }
+];
+
+function getRoute(){
+  return ROUTES.find(r => r.id === state.route) || ROUTES[0];
+}
+
+function renderRouteMenu(){
+  const menu = document.getElementById("routeMenu");
+  menu.innerHTML = ROUTES.map(r => `
+    <button type="button" class="routeoption${r.id === state.route ? " active" : ""}"
+            role="option" aria-selected="${r.id === state.route}"
+            onclick="selectRoute('${r.id}')">
+      <span class="rlabel">${esc(r.label)}</span>
+      <span class="rmeta">${esc(r.meta)}</span>
+    </button>`).join("");
+}
+
+function toggleRouteMenu(){
+  const menu = document.getElementById("routeMenu");
+  const btn = document.getElementById("routeTitleBtn");
+  const opening = !menu.classList.contains("open");
+  if(opening) renderRouteMenu();
+  menu.classList.toggle("open", opening);
+  btn.setAttribute("aria-expanded", String(opening));
+}
+
+function selectRoute(id){
+  state.route = id;
+  state.custom = null;
+  document.getElementById("routeMenu").classList.remove("open");
+  document.getElementById("routeTitleBtn").setAttribute("aria-expanded","false");
+  refresh();
+}
+
+document.addEventListener("click", (e) => {
+  const menu = document.getElementById("routeMenu");
+  const btn = document.getElementById("routeTitleBtn");
+  if(menu && menu.classList.contains("open") && !menu.contains(e.target) && !btn.contains(e.target)){
+    menu.classList.remove("open");
+    btn.setAttribute("aria-expanded","false");
+  }
+});
 
 const stationCache = {};
 let lastJourneys = [];
@@ -523,6 +621,11 @@ function isIgnoredRemark(text){
 
 // Voreingestellte Abfahrtszeit je Richtung und Wochentag
 function presetTime(){
+  const route = getRoute();
+  if(route.id !== "auto"){
+    return { h: route.presetH, m: route.presetM,
+             label: `${route.presetH}:${String(route.presetM).padStart(2,"0")} Uhr` };
+  }
   const now = new Date();
   const dow = now.getDay(); // 0 = So, 6 = Sa
   const weekend = (dow === 0 || dow === 6);
@@ -555,6 +658,25 @@ function buildStandardQuery(){
   const weekend = (dow === 0 || dow === 6);
   const at = (h,m) => { const d = new Date(now); d.setHours(h,m,0,0); return d; };
   const later = (a,b) => a > b ? a : b;
+  const route = getRoute();
+
+  // Manuell über die Titel-Liste gewählte Verbindung ersetzt die automatische Pendlerlogik
+  if(route.id !== "auto"){
+    const [fromQ, toQ] = state.direction === "hin"
+      ? [route.from, route.queryTo]
+      : [route.queryTo, route.from];
+    const title = state.direction === "hin"
+      ? `${route.from} → ${route.displayTo}`
+      : `${route.displayTo} → ${route.from}`;
+
+    if(state.timeMode === "preset"){
+      const p = presetTime();
+      return { fromQ, toQ, when: at(p.h, p.m), isArrival:false, title,
+               desc:`Feste Abfahrtszeit ${p.label} (unabhängig von der aktuellen Uhrzeit)` };
+    }
+    return { fromQ, toQ, when: now, isArrival:false, title,
+             desc:"Nächste Verbindungen ab jetzt" };
+  }
 
   // Explizite Auswahl über den "Abfahrt: jetzt / Voreinstellung"-Button hat Vorrang
   if(state.timeMode === "now" || state.timeMode === "preset"){
