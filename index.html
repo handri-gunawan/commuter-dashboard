@@ -116,6 +116,22 @@
   }
   .wchip .wprecip.low{color:var(--muted);font-weight:600}
 
+  /* ---------- Deutschlandticket-Erinnerung ---------- */
+  .ticketreminder{
+    display:none;align-items:center;gap:10px;margin-top:14px;
+    background:rgba(255,194,75,.10);border:1px solid var(--amber);
+    border-radius:12px;padding:10px 14px;font-size:13px;color:var(--text);
+  }
+  .ticketreminder.show{display:flex}
+  .ticketreminder .ticketicon{font-size:18px;flex:none}
+  .ticketreminder .tickettext{flex:1;line-height:1.4}
+  .ticketreminder .tickettext b{color:var(--amber)}
+  .ticketreminder .ticketclose{
+    flex:none;background:transparent;border:none;color:var(--muted);
+    font-size:14px;line-height:1;cursor:pointer;padding:4px 7px;border-radius:6px;
+  }
+  .ticketreminder .ticketclose:hover{background:var(--panel-2);color:var(--text)}
+
   /* ---------- Buttons ---------- */
   .controls{
     display:flex;flex-wrap:wrap;gap:10px;margin:22px 0 10px;
@@ -420,6 +436,11 @@
       <span class="livechip"><span class="dot"></span><span id="lastUpdate">Live-Daten VBB</span></span>
     </div>
     <div class="weatherbar" id="weatherBar"></div>
+    <div class="ticketreminder" id="ticketReminder">
+      <span class="ticketicon">🎫</span>
+      <span class="tickettext"><b>Letzter Tag des Monats:</b> Deutschlandticket nicht vergessen zu aktualisieren!</span>
+      <button type="button" class="ticketclose" onclick="dismissTicketReminder()" aria-label="Hinweis schließen">✕</button>
+    </div>
   </header>
 
   <div class="controls">
@@ -1264,6 +1285,32 @@ function renderEvents(){
     Tipp: Bei großen Events (Messen, CSD, Marathon, Festival of Lights u. Ä.) lohnt vorher ein Blick in die Baustellen-Sektion oben – der VBB weist Zusatzhalte und Störungen wegen Groß­veranstaltungen dort meist gesondert aus.</div>`;
 }
 
+// Erinnerung: Deutschlandticket am letzten Tag des Monats aktualisieren
+function isLastDayOfMonth(d){
+  const tomorrow = new Date(d);
+  tomorrow.setDate(d.getDate() + 1);
+  return tomorrow.getDate() === 1;
+}
+
+function dismissTicketReminder(){
+  const box = document.getElementById("ticketReminder");
+  box.classList.remove("show");
+  try{
+    localStorage.setItem("ticketReminderDismissed", new Date().toISOString().slice(0,10));
+  }catch{ /* z. B. Privater Modus – dann erscheint der Hinweis beim nächsten Laden erneut */ }
+}
+
+function checkTicketReminder(){
+  const box = document.getElementById("ticketReminder");
+  if(!box) return;
+  const now = new Date();
+  const todayKey = now.toISOString().slice(0,10);
+  let dismissedToday = false;
+  try{ dismissedToday = localStorage.getItem("ticketReminderDismissed") === todayKey; }catch{}
+  box.classList.toggle("show", isLastDayOfMonth(now) && !dismissedToday);
+}
+
+checkTicketReminder();
 refresh();
 </script>
 </body>
