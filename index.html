@@ -32,9 +32,10 @@
   /* Hintergrundfarbe liegt auf <html>, damit die Sky-Ebenen darüber sichtbar bleiben.
      body bekommt KEINEN eigenen Hintergrund und kein position/z-index,
      sonst entsteht ein Stacking-Context und die Ebenen verschwinden dahinter. */
-  html{background:var(--bg)}
+  html{background:#101623}
   body{
     background:transparent;
+    isolation:auto;
     color:var(--text);
     font-family:"Archivo",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
     min-height:100vh;
@@ -45,16 +46,17 @@
   /* ---------- Wetterabhängiger Hintergrund ---------- */
   /* Zwei Ebenen hinter allem: ein Farbverlauf je Wetterlage + optionale Partikel */
   .skybg{
-    position:fixed;inset:0;z-index:0;pointer-events:none;
+    position:fixed;inset:0;z-index:-2;pointer-events:none;
     background:radial-gradient(120% 92% at 50% -8%, #1b2740 0%, #101623 62%, #101623 100%);
     transition:background 1.2s ease;
+    will-change:background;
   }
-  .skyfx{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+  .skyfx{position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden}
   .skyfx canvas{width:100%;height:100%;display:block;opacity:.55}
 
   /* Sonne / Mond als weicher Lichtschein */
   .skyorb{
-    position:fixed;z-index:0;pointer-events:none;
+    position:fixed;z-index:-1;pointer-events:none;
     width:clamp(180px,42vw,340px);aspect-ratio:1;border-radius:50%;
     top:-14%;right:-8%;
     background:none;
@@ -846,7 +848,9 @@
     wird im Hintergrund vorgeladen und für 10 Minuten zwischengespeichert.
     Der Reiter „DB Navigator“ übergibt Start, Ziel, Datum und Uhrzeit per Link an die DB-Navigator-App
     bzw. an bahn.de; die DB-Bahnhofsnummer (IBNR) wird dafür bei der DB nachgeschlagen, da sie sich
-    von der VBB-Nummer unterscheidet. Barrierefrei-Filter und Umsteigezeit lassen sich per Link nicht
+    von der VBB-Nummer unterscheidet. Ist die DB-Suche nicht erreichbar, greift ein fest hinterlegtes
+    Verzeichnis der Bahnhofsnummern eurer Strecke (geprüft gegen die offenen Stationsdaten der DB).
+    Barrierefrei-Filter und Umsteigezeit lassen sich per Link nicht
     zuverlässig übergeben und sind im DB Navigator unter „Optionen“ einzustellen.
     Über den Titel oben lässt sich manuell eine feste Verbindung auswählen (Berlin Hbf, Berlin Westend,
     S-Bahn Griebnitzsee, Bad Belzig) – unabhängig von der automatischen Pendlerlogik.
@@ -1520,11 +1524,13 @@ async function loadWeather(){
       const code = home.current?.weather_code ?? home.current?.weathercode
                    ?? home.daily.weathercode[0];
       const precip = Math.round(home.daily.precipitation_probability_max[0] ?? 0);
-      const tNow = home.current?.temperature_2m ?? home.daily.temperature_2m_max[0];
+      // skyKind() erwartet den Tageshöchstwert (Schnee-Schwelle tMax <= 1),
+      // nicht die aktuelle Temperatur – das war bisher vertauscht.
+      const tMax = home.daily.temperature_2m_max[0];
       const night = (home.current?.is_day !== undefined)
         ? home.current.is_day === 0                    // direkt von der API
         : isNightNow(home.daily.sunrise?.[0], home.daily.sunset?.[0]);
-      applySky(skyKind(code, precip, tNow), night);
+      applySky(skyKind(code, precip, tMax), night);
     }
   }catch(err){
     box.innerHTML = `<div class="wchip"><span class="wicon">⚠️</span><div><div class="wloc">Wetter</div><span class="wtemps" style="color:var(--muted);font-weight:600">nicht verfügbar</span></div></div>`;
@@ -1998,33 +2004,88 @@ function openTab(key){
 const DB_ORTE_API = "https://www.bahn.de/web/api/reiseloesung/orte";
 const dbStationCache = {};
 
+// Fest hinterlegte DB-Bahnhofsnummern (IBNR) für die Stationen eurer Strecke.
+// Dient als letzte Rückfallebene, falls die Orte-API über alle Proxys hinweg
+// nicht erreichbar ist. Quelle: DB-Orte-API (typ=ALL), Stand Juli 2026.
+// Werte geprüft gegen den DB-Open-Data-Stationsdatensatz (EVA-Nummern), Juli 2026.
+const DB_IBNR_FALLBACK = {
+  "michendorf":            { name:"Michendorf",            extId:"8010233", lat:52.31634, lon:13.03069 },
+  "bad belzig":            { name:"Bad Belzig",            extId:"8010031", lat:52.13597, lon:12.59498 },
+  "berlin hbf":            { name:"Berlin Hbf",            extId:"8011160", lat:52.52559, lon:13.36955 },
+  "berlin hauptbahnhof":   { name:"Berlin Hbf",            extId:"8011160", lat:52.52559, lon:13.36955 },
+  "berlin-westend":        { name:"Westend",               extId:"8089111", lat:52.51807, lon:13.28464 },
+  "berlin westend":        { name:"Westend",               extId:"8089111", lat:52.51807, lon:13.28464 },
+  "westend":               { name:"Westend",               extId:"8089111", lat:52.51807, lon:13.28464 },
+  "griebnitzsee":          { name:"Potsdam Griebnitzsee",  extId:"8011695", lat:52.39443, lon:13.12873 },
+  "potsdam griebnitzsee":  { name:"Potsdam Griebnitzsee",  extId:"8011695", lat:52.39443, lon:13.12873 },
+  "berlin-wannsee":        { name:"Berlin-Wannsee",        extId:"8010405", lat:52.42097, lon:13.17953 },
+  "berlin wannsee":        { name:"Berlin-Wannsee",        extId:"8010405", lat:52.42097, lon:13.17953 },
+  "potsdam hbf":           { name:"Potsdam Hbf",           extId:"8012666", lat:52.39151, lon:13.06670 },
+  "berlin ostkreuz":       { name:"Ostkreuz",              extId:"8011162", lat:52.50304, lon:13.46911 },
+  "ostkreuz":              { name:"Ostkreuz",              extId:"8011162", lat:52.50304, lon:13.46911 },
+  "berlin-charlottenburg": { name:"Berlin-Charlottenburg", extId:"8010403", lat:52.50421, lon:13.30233 },
+  "berlin ostbahnhof":     { name:"Berlin Ostbahnhof",     extId:"8010255", lat:52.51049, lon:13.43468 },
+  "berlin zoologischer garten": { name:"Berlin Zoologischer Garten", extId:"8010406", lat:52.50728, lon:13.33199 },
+  "seddin":                { name:"Seddin",                extId:"8013492", lat:52.29184, lon:12.98545 },
+  "wilhelmshorst":         { name:"Wilhelmshorst",         extId:"8010378", lat:52.33149, lon:13.06745 },
+  "beelitz-heilstätten":   { name:"Beelitz-Heilstätten",   extId:"8013467", lat:52.26235, lon:12.92606 },
+  "zossen":                { name:"Zossen",                extId:"8010395", lat:52.21892, lon:13.43857 }
+};
+
+function dbFallbackFor(name){
+  const k = name.trim().toLowerCase();
+  if(DB_IBNR_FALLBACK[k]) return { ...DB_IBNR_FALLBACK[k], _fallback:true };
+  // Auch Zusätze wie "Berlin Hbf (tief)" oder "Michendorf, Bahnhof" zuordnen.
+  // Nur ausreichend lange Präfixe, damit es keine Fehlgriffe gibt.
+  if(k.length >= 5){
+    const cands = Object.entries(DB_IBNR_FALLBACK)
+      .filter(([key]) => k.startsWith(key) && key.length >= 5)
+      .sort((a,b) => b[0].length - a[0].length);          // längster Treffer gewinnt
+    if(cands.length) return { ...cands[0][1], _fallback:true };
+  }
+  return null;
+}
+
 async function dbLookupStation(name){
   const key = name.trim().toLowerCase();
   if(dbStationCache[key] !== undefined) return dbStationCache[key];
 
-  const url = `${DB_ORTE_API}?suchbegriff=${encodeURIComponent(name)}&typ=ALL&limit=5`;
-  // Die DB-API erlaubt keinen direkten Zugriff aus fremden Seiten → über Proxy
+  const url = `${DB_ORTE_API}?suchbegriff=${encodeURIComponent(name)}&typ=ALL&limit=10`;
+  // Die DB-API erlaubt keinen direkten Zugriff aus fremden Seiten → über Proxy.
+  // Alle Wege gleichzeitig starten, der schnellste brauchbare gewinnt.
   const tries = [
-    u => u,                                                     // falls doch erlaubt
+    u => u,                                                      // falls doch erlaubt
     u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
-    u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`
+    u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
+    u => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(u)}`,
+    u => `https://thingproxy.freeboard.io/fetch/${u}`
   ];
-  for(const mk of tries){
+
+  const attempt = async (mk) => {
     const ctrl = new AbortController();
-    const kill = setTimeout(() => ctrl.abort(), 5000);
+    const kill = setTimeout(() => ctrl.abort(), 6000);
     try{
       const res = await fetch(mk(url), { signal: ctrl.signal });
-      if(!res.ok) throw new Error();
+      if(!res.ok) throw new Error(`HTTP ${res.status}`);
       const list = await res.json();
-      const hit = (Array.isArray(list) ? list : []).find(o => o.extId || o.id);
-      if(!hit) throw new Error();
-      dbStationCache[key] = hit;
+      const arr = Array.isArray(list) ? list : (list?.orte || []);
+      // Nur echte Haltestellen mit Bahnhofsnummer, keine Adressen/POIs
+      const hit = arr.find(o => (o.extId || o.id) && (!o.type || /ST|STATION|BAHNHOF/i.test(o.type)))
+               || arr.find(o => o.extId || o.id);
+      if(!hit) throw new Error("kein Treffer");
       return hit;
-    }catch{ /* nächster Versuch */ }
-    finally{ clearTimeout(kill); }
+    } finally { clearTimeout(kill); }
+  };
+
+  try{
+    const hit = await Promise.any(tries.map(attempt));
+    dbStationCache[key] = hit;
+    return hit;
+  }catch{
+    const fb = dbFallbackFor(name);          // fest hinterlegte IBNR als Notnagel
+    dbStationCache[key] = fb;
+    return fb;
   }
-  dbStationCache[key] = null;
-  return null;
 }
 
 function buildDbLink(q, fromName, toName, dbFrom, dbTo){
@@ -2033,23 +2094,40 @@ function buildDbLink(q, fromName, toName, dbFrom, dbTo){
   const hd = `${when.getFullYear()}-${pad(when.getMonth()+1)}-${pad(when.getDate())}`
            + `T${pad(when.getHours())}:${pad(when.getMinutes())}:00`;
 
-  // soid/zoid müssen URL-kodiert bleiben (@ → %40, = → %3D)
+  // bahn.de erwartet die vollständige HAFAS-Ortskennung, z. B.
+  //   A=1@O=Michendorf@X=13030690@Y=52316340@U=80@L=8010233@B=1@p=…@
+  // Eine verkürzte Form (nur O= und L=) führt zu „Keine Verbindungen gefunden“.
+  // Die Orte-API liefert diese Kennung fertig im Feld "id" – die nehmen wir bevorzugt.
+  const coord = v => String(Math.round(Math.abs(Number(v)) * 1e6));   // Grad → Mikrograd
+  const stamp = Math.floor(Date.now() / 1000);
+
   const mkOid = (dbStop, fallbackName) => {
-    if(dbStop && dbStop.id) return encodeURIComponent(dbStop.id);
-    if(dbStop && dbStop.extId) return encodeURIComponent(`A=1@O=${dbStop.name}@L=${dbStop.extId}@`);
-    return encodeURIComponent(`O=${fallbackName}`);      // einfache Namensform
+    if(!dbStop) return encodeURIComponent(`A=1@O=${fallbackName}@`);
+    // 1. Fertige Kennung direkt aus der DB-API – der zuverlässigste Weg
+    if(dbStop.id && /^A=\d+@/.test(dbStop.id)) return encodeURIComponent(dbStop.id);
+    // 2. Selbst zusammensetzen – vollständig inkl. Koordinaten
+    if(dbStop.extId){
+      const lat = dbStop.lat ?? dbStop.coordinate?.lat ?? dbStop.y;
+      const lon = dbStop.lon ?? dbStop.coordinate?.lng ?? dbStop.x;
+      let id = `A=1@O=${dbStop.name || fallbackName}@`;
+      if(lat != null && lon != null) id += `X=${coord(lon)}@Y=${coord(lat)}@`;
+      id += `U=80@L=${dbStop.extId}@B=1@p=${stamp}@`;
+      return encodeURIComponent(id);
+    }
+    return encodeURIComponent(`A=1@O=${dbStop.name || fallbackName}@`);
   };
 
   const parts = [
-    `soid=${mkOid(dbFrom, fromName)}`,
-    `zoid=${mkOid(dbTo, toName)}`,
+    `sts=true`,                                   // Suche direkt ausführen
     `so=${encodeURIComponent(dbFrom?.name || fromName)}`,
     `zo=${encodeURIComponent(dbTo?.name || toName)}`,
+    `soid=${mkOid(dbFrom, fromName)}`,
+    `zoid=${mkOid(dbTo, toName)}`,
     `hd=${hd}`,
     `hza=${q.isArrival ? "A" : "D"}`,
     `kl=2`,
     `r=13:16:KLASSENLOS:1`,
-    `ar=false`, `bp=false`, `s=true`, `d=false`
+    `ar=false`, `bp=false`, `s=true`, `d=false`, `hz=${encodeURIComponent("[]")}`, `fm=false`
   ];
   if(dbFrom?.extId) parts.push(`soei=${dbFrom.extId}`, `sot=ST`);
   if(dbTo?.extId)   parts.push(`zoei=${dbTo.extId}`,   `zot=ST`);
@@ -2077,6 +2155,7 @@ async function renderDbPanel(){
     const link = buildDbLink(q, vFrom.name, vTo.name, dbFrom, dbTo);
     const when = q.when instanceof Date ? q.when : new Date(q.when);
     const exact = !!(dbFrom?.extId && dbTo?.extId);
+    const usedFallback = !!(dbFrom?._fallback || dbTo?._fallback);
 
     body.innerHTML = `
       <div class="dbsummary">
@@ -2097,13 +2176,17 @@ async function renderDbPanel(){
         <span class="ic">${exact ? "💡" : "⚠️"}</span>
         <span>${exact
           ? `Auf dem iPhone öffnet der Link die <b>DB-Navigator-App</b>, sofern installiert – sonst bahn.de.
+             ${usedFallback ? `Die Bahnhofsnummern stammen aus dem im Dashboard hinterlegten Verzeichnis,
+             weil die DB-Suche gerade nicht erreichbar war – der Link funktioniert trotzdem. ` : ""}
              Barrierefrei-Filter und Umsteigezeit lassen sich per Link nicht zuverlässig übergeben;
              sie sind im DB Navigator unter „Optionen“ einzustellen.`
           : `Die DB-Bahnhofsnummer konnte nicht ermittelt werden – der Link nutzt daher nur den
              Stationsnamen und funktioniert eventuell nicht. Falls die DB „Keine Verbindungen gefunden“
              meldet, bitte Start und Ziel dort von Hand eingeben.`}</span>
       </div>`;
-    stamp.textContent = exact ? "Suche übernommen" : "eingeschränkt übernommen";
+    stamp.textContent = exact
+      ? (usedFallback ? "Suche übernommen (Verzeichnis)" : "Suche übernommen")
+      : "eingeschränkt übernommen";
   }catch(err){
     body.innerHTML = `<div class="infonote">Der Link konnte nicht aufgebaut werden (${esc(err.message)}).</div>
       <a class="dbopen" style="margin-top:10px" href="https://www.bahn.de/buchung/fahrplan/suche" target="_blank" rel="noopener">
