@@ -844,8 +844,10 @@
     Der Hintergrund passt sich automatisch dem aktuellen Wetter in Michendorf an (inkl. Tag/Nacht).
     Polizeimeldungen: RSS-Feed der Polizei Berlin, automatisch nach Orten an eurer Strecke und Bahn-Stichwörtern gefiltert;
     wird im Hintergrund vorgeladen und für 10 Minuten zwischengespeichert.
-    Der Reiter „DB Navigator“ übergibt die aktuell angezeigte Suche (Start, Ziel, Zeit, Barrierefrei-Einstellung)
-    per Link an die DB-Navigator-App bzw. an bahn.de.
+    Der Reiter „DB Navigator“ übergibt Start, Ziel, Datum und Uhrzeit per Link an die DB-Navigator-App
+    bzw. an bahn.de; die DB-Bahnhofsnummer (IBNR) wird dafür bei der DB nachgeschlagen, da sie sich
+    von der VBB-Nummer unterscheidet. Barrierefrei-Filter und Umsteigezeit lassen sich per Link nicht
+    zuverlässig übergeben und sind im DB Navigator unter „Optionen“ einzustellen.
     Über den Titel oben lässt sich manuell eine feste Verbindung auswählen (Berlin Hbf, Berlin Westend,
     S-Bahn Griebnitzsee, Bad Belzig) – unabhängig von der automatischen Pendlerlogik.
     In der eigenen Suche schlägt das Dashboard ab dem zweiten Buchstaben passende Haltestellen vor
@@ -859,6 +861,122 @@
 
 <script>
 const API = "https://v6.vbb.transport.rest";
+
+/* ---------- Wetterabhängiger Hintergrund ---------- */
+// Farbwelten je Wetterlage – jeweils für Tag und Nacht getrennt,
+// damit der Hintergrund abends nicht grell wird.
+const SKY_THEMES = {
+  clear:  { day:["#2d5f96","#16233a"], night:["#131f38","#0b0f1a"] },
+  cloudy: { day:["#41506b","#1a2130"], night:["#1c2536","#0d1119"] },
+  fog:    { day:["#4a5364","#20262f"], night:["#1e232c","#0c0f14"] },
+  rain:   { day:["#2c4155","#141c26"], night:["#131c28","#090d13"] },
+  snow:   { day:["#48596e","#1c242f"], night:["#1a222e","#0a0e14"] },
+  storm:  { day:["#3a2f56","#160f24"], night:["#1d1733","#0a0713"] }
+};
+function skyKind(code, precip, tMax){
+  if([95,96,99].includes(code)) return "storm";
+  if([71,73,75,77,85,86].includes(code) || (tMax <= 1 && precip >= 40)) return "snow";
+  if([61,63,65,80,81,82,51,53,55,56,57].includes(code)) return "rain";
+  if([45,48].includes(code)) return "fog";
+  if([2,3].includes(code)) return "cloudy";
+  if([0,1].includes(code)) return "clear";
+  return precip >= 50 ? "rain" : "cloudy";
+}
+function isNightNow(sunrise, sunset){
+  const now = Date.now();
+  const a = new Date(sunrise).getTime(), b = new Date(sunset).getTime();
+  if(isNaN(a) || isNaN(b)) { const h = new Date().getHours(); return h < 7 || h >= 20; }
+  return now < a || now > b;
+}
+
+let skyAnim = null;
+function stopSkyFx(){
+  if(skyAnim){ cancelAnimationFrame(skyAnim); skyAnim = null; }
+  document.getElementById("skyFx").innerHTML = "";
+}
+
+// Regen-/Schneepartikel auf einem Canvas – bewusst sparsam, damit der Akku hält
+function startSkyFx(kind){
+  stopSkyFx();
+  if(!["rain","snow","storm"].includes(kind)) return;
+  if(window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+  const host = document.getElementById("skyFx");
+  const cv = document.createElement("canvas");
+  host.appendChild(cv);
+  const ctx = cv.getContext("2d");
+  let w, h, parts;
+  const snow = kind === "snow";
+  const count = snow ? 70 : (kind === "storm" ? 130 : 100);
+
+  function size(){
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    w = cv.width = innerWidth * dpr;
+    h = cv.height = innerHeight * dpr;
+    ctx.scale(1,1);
+    parts = Array.from({length: count}, () => ({
+      x: Math.random()*w, y: Math.random()*h,
+      len: snow ? (1.6+Math.random()*2.2)*dpr : (9+Math.random()*16)*dpr,
+      vy: snow ? (0.4+Math.random()*0.8)*dpr : (7+Math.random()*7)*dpr,
+      vx: snow ? (Math.random()-0.5)*0.6*dpr : -1.1*dpr,
+      o: 0.25+Math.random()*0.45
+    }));
+  }
+  size();
+  addEventListener("resize", size, { passive:true });
+
+  function frame(){
+    ctx.clearRect(0,0,w,h);
+    for(const p of parts){
+      if(snow){
+        ctx.beginPath();
+        ctx.fillStyle = `rgba(226,238,255,${p.o})`;
+        ctx.arc(p.x, p.y, p.len, 0, Math.PI*2);
+        ctx.fill();
+      } else {
+        ctx.beginPath();
+        ctx.strokeStyle = `rgba(150,190,235,${p.o})`;
+        ctx.lineWidth = Math.max(1, p.len/14);
+        ctx.moveTo(p.x, p.y);
+        ctx.lineTo(p.x + p.vx*1.8, p.y + p.len);
+        ctx.stroke();
+      }
+      p.x += p.vx; p.y += p.vy;
+      if(p.y > h){ p.y = -20; p.x = Math.random()*w; }
+      if(p.x < -30) p.x = w + 20;
+    }
+    skyAnim = requestAnimationFrame(frame);
+  }
+  frame();
+}
+
+// Bei verstecktem Tab pausieren – spart Akku auf dem Handy
+document.addEventListener("visibilitychange", () => {
+  if(document.hidden){ if(skyAnim){ cancelAnimationFrame(skyAnim); skyAnim = null; } }
+  else if(currentSkyKind && !skyAnim) startSkyFx(currentSkyKind);
+});
+let currentSkyKind = null;
+
+function applySky(kind, night){
+  const th = SKY_THEMES[kind] || SKY_THEMES.cloudy;
+  const [a, b] = night ? th.night : th.day;
+  document.getElementById("skyBg").style.background =
+    `radial-gradient(120% 92% at 50% -8%, ${a} 0%, ${b} 62%, ${b} 100%)`;
+
+  // Sonne bzw. Mond nur bei klarem oder leicht bewölktem Himmel
+  const orb = document.getElementById("skyOrb");
+  const showOrb = ["clear","cloudy"].includes(kind);
+  if(showOrb){
+    orb.style.background = night
+      ? "radial-gradient(circle at 50% 50%, rgba(210,225,255,.30) 0%, rgba(210,225,255,.08) 42%, transparent 68%)"
+      : "radial-gradient(circle at 50% 50%, rgba(255,214,120,.42) 0%, rgba(255,180,80,.13) 45%, transparent 70%)";
+  }
+  orb.classList.toggle("on", showOrb);
+
+  currentSkyKind = kind;
+  startSkyFx(kind);
+}
+
 
 const state = {
   direction: "hin",      // 'hin' | 'rueck'
@@ -1345,121 +1463,6 @@ function renderDetailModal(j, legs, tripDetails){
   `;
 }
 
-/* ---------- Wetterabhängiger Hintergrund ---------- */
-// Farbwelten je Wetterlage – jeweils für Tag und Nacht getrennt,
-// damit der Hintergrund abends nicht grell wird.
-const SKY_THEMES = {
-  clear:  { day:["#2d5f96","#16233a"], night:["#131f38","#0b0f1a"] },
-  cloudy: { day:["#41506b","#1a2130"], night:["#1c2536","#0d1119"] },
-  fog:    { day:["#4a5364","#20262f"], night:["#1e232c","#0c0f14"] },
-  rain:   { day:["#2c4155","#141c26"], night:["#131c28","#090d13"] },
-  snow:   { day:["#48596e","#1c242f"], night:["#1a222e","#0a0e14"] },
-  storm:  { day:["#3a2f56","#160f24"], night:["#1d1733","#0a0713"] }
-};
-function skyKind(code, precip, tMax){
-  if([95,96,99].includes(code)) return "storm";
-  if([71,73,75,77,85,86].includes(code) || (tMax <= 1 && precip >= 40)) return "snow";
-  if([61,63,65,80,81,82,51,53,55,56,57].includes(code)) return "rain";
-  if([45,48].includes(code)) return "fog";
-  if([2,3].includes(code)) return "cloudy";
-  if([0,1].includes(code)) return "clear";
-  return precip >= 50 ? "rain" : "cloudy";
-}
-function isNightNow(sunrise, sunset){
-  const now = Date.now();
-  const a = new Date(sunrise).getTime(), b = new Date(sunset).getTime();
-  if(isNaN(a) || isNaN(b)) { const h = new Date().getHours(); return h < 7 || h >= 20; }
-  return now < a || now > b;
-}
-
-let skyAnim = null;
-function stopSkyFx(){
-  if(skyAnim){ cancelAnimationFrame(skyAnim); skyAnim = null; }
-  document.getElementById("skyFx").innerHTML = "";
-}
-
-// Regen-/Schneepartikel auf einem Canvas – bewusst sparsam, damit der Akku hält
-function startSkyFx(kind){
-  stopSkyFx();
-  if(!["rain","snow","storm"].includes(kind)) return;
-  if(window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-
-  const host = document.getElementById("skyFx");
-  const cv = document.createElement("canvas");
-  host.appendChild(cv);
-  const ctx = cv.getContext("2d");
-  let w, h, parts;
-  const snow = kind === "snow";
-  const count = snow ? 70 : (kind === "storm" ? 130 : 100);
-
-  function size(){
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    w = cv.width = innerWidth * dpr;
-    h = cv.height = innerHeight * dpr;
-    ctx.scale(1,1);
-    parts = Array.from({length: count}, () => ({
-      x: Math.random()*w, y: Math.random()*h,
-      len: snow ? (1.6+Math.random()*2.2)*dpr : (9+Math.random()*16)*dpr,
-      vy: snow ? (0.4+Math.random()*0.8)*dpr : (7+Math.random()*7)*dpr,
-      vx: snow ? (Math.random()-0.5)*0.6*dpr : -1.1*dpr,
-      o: 0.25+Math.random()*0.45
-    }));
-  }
-  size();
-  addEventListener("resize", size, { passive:true });
-
-  function frame(){
-    ctx.clearRect(0,0,w,h);
-    for(const p of parts){
-      if(snow){
-        ctx.beginPath();
-        ctx.fillStyle = `rgba(226,238,255,${p.o})`;
-        ctx.arc(p.x, p.y, p.len, 0, Math.PI*2);
-        ctx.fill();
-      } else {
-        ctx.beginPath();
-        ctx.strokeStyle = `rgba(150,190,235,${p.o})`;
-        ctx.lineWidth = Math.max(1, p.len/14);
-        ctx.moveTo(p.x, p.y);
-        ctx.lineTo(p.x + p.vx*1.8, p.y + p.len);
-        ctx.stroke();
-      }
-      p.x += p.vx; p.y += p.vy;
-      if(p.y > h){ p.y = -20; p.x = Math.random()*w; }
-      if(p.x < -30) p.x = w + 20;
-    }
-    skyAnim = requestAnimationFrame(frame);
-  }
-  frame();
-}
-
-// Bei verstecktem Tab pausieren – spart Akku auf dem Handy
-document.addEventListener("visibilitychange", () => {
-  if(document.hidden){ if(skyAnim){ cancelAnimationFrame(skyAnim); skyAnim = null; } }
-  else if(currentSkyKind && !skyAnim) startSkyFx(currentSkyKind);
-});
-let currentSkyKind = null;
-
-function applySky(kind, night){
-  const th = SKY_THEMES[kind] || SKY_THEMES.cloudy;
-  const [a, b] = night ? th.night : th.day;
-  document.getElementById("skyBg").style.background =
-    `radial-gradient(120% 92% at 50% -8%, ${a} 0%, ${b} 62%, ${b} 100%)`;
-
-  // Sonne bzw. Mond nur bei klarem oder leicht bewölktem Himmel
-  const orb = document.getElementById("skyOrb");
-  const showOrb = ["clear","cloudy"].includes(kind);
-  if(showOrb){
-    orb.style.background = night
-      ? "radial-gradient(circle at 50% 50%, rgba(210,225,255,.30) 0%, rgba(210,225,255,.08) 42%, transparent 68%)"
-      : "radial-gradient(circle at 50% 50%, rgba(255,214,120,.42) 0%, rgba(255,180,80,.13) 45%, transparent 70%)";
-  }
-  orb.classList.toggle("on", showOrb);
-
-  currentSkyKind = kind;
-  startSkyFx(kind);
-}
-
 /* ---------- Kompakte Wetteranzeige (Open-Meteo, kostenlos, ohne API-Key) ---------- */
 const WEATHER_LOCS = [
   { label:"Michendorf", lat:52.2963, lon:12.9539 },
@@ -1486,7 +1489,7 @@ async function loadWeather(){
     const chips = await Promise.all(WEATHER_LOCS.map(async loc => {
       const url = `https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}`
         + `&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode,sunrise,sunset`
-        + `&current=weathercode,temperature_2m`
+        + `&current=weather_code,temperature_2m,is_day`
         + `&timezone=Europe%2FBerlin&forecast_days=1`;
       const res = await fetch(url);
       if(!res.ok) throw new Error("Wetterdaten nicht verfügbar");
@@ -1512,10 +1515,15 @@ async function loadWeather(){
     // Hintergrund richtet sich nach dem aktuellen Wetter in Michendorf (Wohnort)
     const home = WEATHER_LOCS[0].raw;
     if(home){
-      const code = home.current?.weathercode ?? home.daily.weathercode[0];
+      // Open-Meteo liefert im current-Block "weather_code" (mit Unterstrich),
+      // im daily-Block dagegen "weathercode". Beide Schreibweisen abfangen.
+      const code = home.current?.weather_code ?? home.current?.weathercode
+                   ?? home.daily.weathercode[0];
       const precip = Math.round(home.daily.precipitation_probability_max[0] ?? 0);
       const tNow = home.current?.temperature_2m ?? home.daily.temperature_2m_max[0];
-      const night = isNightNow(home.daily.sunrise?.[0], home.daily.sunset?.[0]);
+      const night = (home.current?.is_day !== undefined)
+        ? home.current.is_day === 0                    // direkt von der API
+        : isNightNow(home.daily.sunrise?.[0], home.daily.sunset?.[0]);
       applySky(skyKind(code, precip, tNow), night);
     }
   }catch(err){
@@ -1983,52 +1991,70 @@ function openTab(key){
 }
 
 /* ---------- DB Navigator: aktuelle Suche als Deep-Link übergeben ---------- */
-// bahn.de erwartet die Stationen als "soid/zoid" mit EVA-Nummer (IBNR).
-// Die VBB-Haltestellen-IDs SIND die EVA-Nummern – dadurch lässt sich der Link exakt aufbauen.
-// Ein Klick öffnet auf dem Handy die DB-Navigator-App (sofern installiert), sonst bahn.de.
-function dbStationParam(stop){
-  const eva = String(stop.id).replace(/\D/g, "");
-  const name = stop.name || "";
-  // Format: A=1@O=<Name>@L=<EVA>@  – A=1 bedeutet "Haltestelle"
-  return { id: `A=1@O=${name}@L=${eva}@`, eva, name };
+// Wichtig: bahn.de arbeitet mit IBNR-Nummern (beginnen mit 8…), der VBB dagegen
+// mit eigenen Nummern (beginnen mit 9…). Die sind NICHT identisch – deshalb fragen
+// wir die Stations-ID direkt bei der DB nach. Fällt das aus, nutzen wir die
+// einfache Namensform "O=<Name>", die bahn.de für eindeutige Bahnhöfe akzeptiert.
+const DB_ORTE_API = "https://www.bahn.de/web/api/reiseloesung/orte";
+const dbStationCache = {};
+
+async function dbLookupStation(name){
+  const key = name.trim().toLowerCase();
+  if(dbStationCache[key] !== undefined) return dbStationCache[key];
+
+  const url = `${DB_ORTE_API}?suchbegriff=${encodeURIComponent(name)}&typ=ALL&limit=5`;
+  // Die DB-API erlaubt keinen direkten Zugriff aus fremden Seiten → über Proxy
+  const tries = [
+    u => u,                                                     // falls doch erlaubt
+    u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+    u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`
+  ];
+  for(const mk of tries){
+    const ctrl = new AbortController();
+    const kill = setTimeout(() => ctrl.abort(), 5000);
+    try{
+      const res = await fetch(mk(url), { signal: ctrl.signal });
+      if(!res.ok) throw new Error();
+      const list = await res.json();
+      const hit = (Array.isArray(list) ? list : []).find(o => o.extId || o.id);
+      if(!hit) throw new Error();
+      dbStationCache[key] = hit;
+      return hit;
+    }catch{ /* nächster Versuch */ }
+    finally{ clearTimeout(kill); }
+  }
+  dbStationCache[key] = null;
+  return null;
 }
 
-function buildDbLink(q, from, to){
-  const s = dbStationParam(from), z = dbStationParam(to);
+function buildDbLink(q, fromName, toName, dbFrom, dbTo){
   const when = q.when instanceof Date ? q.when : new Date(q.when);
-  // bahn.de erwartet lokale Zeit ohne Zeitzonen-Suffix
   const pad = n => String(n).padStart(2,"0");
   const hd = `${when.getFullYear()}-${pad(when.getMonth()+1)}-${pad(when.getDate())}`
            + `T${pad(when.getHours())}:${pad(when.getMinutes())}:00`;
 
-  const p = new URLSearchParams();
-  p.set("sts","true");
-  p.set("so", s.name);
-  p.set("zo", z.name);
-  p.set("soid", s.id);
-  p.set("zoid", z.id);
-  p.set("sot","ST");           // Start ist eine Station
-  p.set("zot","ST");
-  p.set("soei", s.eva);
-  p.set("zoei", z.eva);
-  p.set("hd", hd);
-  p.set("hza", q.isArrival ? "A" : "D");   // A = Ankunftszeit, D = Abfahrtszeit
-  p.set("kl","2");             // 2. Klasse
-  p.set("r", `13:16:KLASSENLOS:1`);
-  p.set("ar","false");
-  p.set("bp","false");
-  p.set("dltv", "true");       // Deutschlandticket-Verbindungen bevorzugen
-  // Umsteigezeit nur mitgeben, wenn im Barrierefrei-Modus bewusst gesetzt
-  if(state.barrierefrei){
-    p.set("ums", String(state.transferMin));   // Mindest-Umsteigezeit in Minuten
-    p.set("bar","true");                       // barrierefreie Verbindungen
-  }
-  // URLSearchParams kodiert @ = : roh benötigt, und macht aus Leerzeichen "+" –
-  // im Hash-Teil erwartet bahn.de aber %20, sonst landen Pluszeichen im Stationsnamen.
-  const hash = p.toString()
-    .replace(/\+/g,"%20")
-    .replace(/%40/g,"@").replace(/%3D/g,"=").replace(/%3A/g,":");
-  return `https://www.bahn.de/buchung/fahrplan/suche#${hash}`;
+  // soid/zoid müssen URL-kodiert bleiben (@ → %40, = → %3D)
+  const mkOid = (dbStop, fallbackName) => {
+    if(dbStop && dbStop.id) return encodeURIComponent(dbStop.id);
+    if(dbStop && dbStop.extId) return encodeURIComponent(`A=1@O=${dbStop.name}@L=${dbStop.extId}@`);
+    return encodeURIComponent(`O=${fallbackName}`);      // einfache Namensform
+  };
+
+  const parts = [
+    `soid=${mkOid(dbFrom, fromName)}`,
+    `zoid=${mkOid(dbTo, toName)}`,
+    `so=${encodeURIComponent(dbFrom?.name || fromName)}`,
+    `zo=${encodeURIComponent(dbTo?.name || toName)}`,
+    `hd=${hd}`,
+    `hza=${q.isArrival ? "A" : "D"}`,
+    `kl=2`,
+    `r=13:16:KLASSENLOS:1`,
+    `ar=false`, `bp=false`, `s=true`, `d=false`
+  ];
+  if(dbFrom?.extId) parts.push(`soei=${dbFrom.extId}`, `sot=ST`);
+  if(dbTo?.extId)   parts.push(`zoei=${dbTo.extId}`,   `zot=ST`);
+
+  return `https://www.bahn.de/buchung/fahrplan/suche#${parts.join("&")}`;
 }
 
 let dbLastQuery = null;   // wird bei jedem refresh() gefüllt
@@ -2043,38 +2069,46 @@ async function renderDbPanel(){
   body.innerHTML = `<div class="state" style="padding:28px 20px"><div class="spinner"></div>Link wird vorbereitet …</div>`;
   try{
     const q = dbLastQuery;
-    const [from, to] = await Promise.all([resolveStation(q.fromQ), resolveStation(q.toQ)]);
-    const link = buildDbLink(q, from, to);
+    // Namen aus der VBB-Suche holen, dann bei der DB die passende IBNR nachschlagen
+    const [vFrom, vTo] = await Promise.all([resolveStation(q.fromQ), resolveStation(q.toQ)]);
+    const [dbFrom, dbTo] = await Promise.all([
+      dbLookupStation(vFrom.name), dbLookupStation(vTo.name)
+    ]);
+    const link = buildDbLink(q, vFrom.name, vTo.name, dbFrom, dbTo);
     const when = q.when instanceof Date ? q.when : new Date(q.when);
+    const exact = !!(dbFrom?.extId && dbTo?.extId);
 
     body.innerHTML = `
       <div class="dbsummary">
         <div class="dbrow"><span class="dbk">Abfahrt</span>
-          <span class="dbv">${esc(from.name)}<span class="dbsub">EVA ${esc(String(from.id).replace(/\D/g,""))}</span></span></div>
+          <span class="dbv">${esc(dbFrom?.name || vFrom.name)}${
+            dbFrom?.extId ? `<span class="dbsub">IBNR ${esc(dbFrom.extId)}</span>` : ""}</span></div>
         <div class="dbrow"><span class="dbk">Ziel</span>
-          <span class="dbv">${esc(to.name)}<span class="dbsub">EVA ${esc(String(to.id).replace(/\D/g,""))}</span></span></div>
+          <span class="dbv">${esc(dbTo?.name || vTo.name)}${
+            dbTo?.extId ? `<span class="dbsub">IBNR ${esc(dbTo.extId)}</span>` : ""}</span></div>
         <div class="dbrow"><span class="dbk">${q.isArrival ? "Ankunft bis" : "Abfahrt ab"}</span>
           <span class="dbv">${esc(fmtDate(when))}, ${esc(fmtTime(when.toISOString()))} Uhr</span></div>
-        <div class="dbrow"><span class="dbk">Klasse</span><span class="dbv">2. Klasse · D-Ticket-Verbindungen</span></div>
-        ${state.barrierefrei ? `
-        <div class="dbrow"><span class="dbk">Barrierefrei</span>
-          <span class="dbv" style="color:var(--green)">♿ aktiv · min. ${state.transferMin} Min Umstieg</span></div>` : ""}
+        <div class="dbrow"><span class="dbk">Klasse</span><span class="dbv">2. Klasse</span></div>
       </div>
       <a class="dbopen" href="${esc(link)}" target="_blank" rel="noopener">
         🚉 Im DB Navigator öffnen ↗
       </a>
       <div class="dbhint">
-        <span class="ic">💡</span>
-        <span>Auf dem iPhone öffnet der Link die <b>DB-Navigator-App</b>, sofern sie installiert ist –
-          sonst bahn.de im Browser. Die Umsteigezeit übernimmt die DB nur teilweise;
-          sie lässt sich dort unter „Optionen“ nachjustieren.</span>
+        <span class="ic">${exact ? "💡" : "⚠️"}</span>
+        <span>${exact
+          ? `Auf dem iPhone öffnet der Link die <b>DB-Navigator-App</b>, sofern installiert – sonst bahn.de.
+             Barrierefrei-Filter und Umsteigezeit lassen sich per Link nicht zuverlässig übergeben;
+             sie sind im DB Navigator unter „Optionen“ einzustellen.`
+          : `Die DB-Bahnhofsnummer konnte nicht ermittelt werden – der Link nutzt daher nur den
+             Stationsnamen und funktioniert eventuell nicht. Falls die DB „Keine Verbindungen gefunden“
+             meldet, bitte Start und Ziel dort von Hand eingeben.`}</span>
       </div>`;
-    stamp.textContent = "Suche übernommen";
+    stamp.textContent = exact ? "Suche übernommen" : "eingeschränkt übernommen";
   }catch(err){
     body.innerHTML = `<div class="infonote">Der Link konnte nicht aufgebaut werden (${esc(err.message)}).</div>
       <a class="dbopen" style="margin-top:10px" href="https://www.bahn.de/buchung/fahrplan/suche" target="_blank" rel="noopener">
         🚉 DB Navigator ohne Vorgaben öffnen ↗</a>`;
-    stamp.textContent = "eingeschränkt";
+    stamp.textContent = "nicht verfügbar";
   }
 }
 
