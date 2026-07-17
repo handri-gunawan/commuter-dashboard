@@ -32,10 +32,16 @@
   /* Hintergrundfarbe liegt auf <html>, damit die Sky-Ebenen darüber sichtbar bleiben.
      body bekommt KEINEN eigenen Hintergrund und kein position/z-index,
      sonst entsteht ein Stacking-Context und die Ebenen verschwinden dahinter. */
-  html{background:#101623}
+  /* Der Wetter-Hintergrund liegt direkt auf <html>. Eine separate Ebene mit
+     negativem z-index würde vom Hintergrund des Wurzelelements verdeckt. */
+  html{
+    background:#101623;
+    background-image:radial-gradient(120% 92% at 50% -8%, #1b2740 0%, #101623 62%, #101623 100%);
+    background-attachment:fixed;
+    transition:background-image 1.2s ease;
+  }
   body{
     background:transparent;
-    isolation:auto;
     color:var(--text);
     font-family:"Archivo",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
     min-height:100vh;
@@ -45,18 +51,12 @@
 
   /* ---------- Wetterabhängiger Hintergrund ---------- */
   /* Zwei Ebenen hinter allem: ein Farbverlauf je Wetterlage + optionale Partikel */
-  .skybg{
-    position:fixed;inset:0;z-index:-2;pointer-events:none;
-    background:radial-gradient(120% 92% at 50% -8%, #1b2740 0%, #101623 62%, #101623 100%);
-    transition:background 1.2s ease;
-    will-change:background;
-  }
-  .skyfx{position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden}
+  .skyfx{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
   .skyfx canvas{width:100%;height:100%;display:block;opacity:.55}
 
   /* Sonne / Mond als weicher Lichtschein */
   .skyorb{
-    position:fixed;z-index:-1;pointer-events:none;
+    position:fixed;z-index:0;pointer-events:none;
     width:clamp(180px,42vw,340px);aspect-ratio:1;border-radius:50%;
     top:-14%;right:-8%;
     background:none;
@@ -681,7 +681,6 @@
 </style>
 </head>
 <body>
-<div class="skybg" id="skyBg"></div>
 <div class="skyorb" id="skyOrb"></div>
 <div class="skyfx" id="skyFx"></div>
 <div class="wrap">
@@ -964,8 +963,10 @@ let currentSkyKind = null;
 function applySky(kind, night){
   const th = SKY_THEMES[kind] || SKY_THEMES.cloudy;
   const [a, b] = night ? th.night : th.day;
-  document.getElementById("skyBg").style.background =
+  // Direkt auf <html> setzen – siehe Kommentar im CSS
+  document.documentElement.style.backgroundImage =
     `radial-gradient(120% 92% at 50% -8%, ${a} 0%, ${b} 62%, ${b} 100%)`;
+  document.documentElement.style.backgroundColor = b;
 
   // Sonne bzw. Mond nur bei klarem oder leicht bewölktem Himmel
   const orb = document.getElementById("skyOrb");
@@ -2029,20 +2030,45 @@ const DB_IBNR_FALLBACK = {
   "seddin":                { name:"Seddin",                extId:"8013492", lat:52.29184, lon:12.98545 },
   "wilhelmshorst":         { name:"Wilhelmshorst",         extId:"8010378", lat:52.33149, lon:13.06745 },
   "beelitz-heilstätten":   { name:"Beelitz-Heilstätten",   extId:"8013467", lat:52.26235, lon:12.92606 },
-  "zossen":                { name:"Zossen",                extId:"8010395", lat:52.21892, lon:13.43857 }
+  "zossen":                { name:"Zossen",                extId:"8010395", lat:52.21892, lon:13.43857 },
+  "berlin südkreuz":        { name:"Berlin Südkreuz",        extId:"8011113", lat:52.47505, lon:13.36532 },
+  "berlin-grunewald":       { name:"Berlin-Grunewald",       extId:"8089062", lat:52.48869, lon:13.26172 },
+  "berlin-friedrichstraße": { name:"Berlin-Friedrichstraße", extId:"8011306", lat:52.52037, lon:13.38721 },
+  "berlin-spandau":         { name:"Berlin-Spandau",         extId:"8010404", lat:52.53465, lon:13.19690 }
 };
 
+// Der VBB liefert Namen mit Verkehrsmittel-Präfix, z. B. "S+U Berlin Hauptbahnhof",
+// "S Griebnitzsee Bhf" oder "Bhf Michendorf". Die DB kennt diese Präfixe nicht.
+// Deshalb vor dem Abgleich auf einen Kernnamen normalisieren.
+function dbNormalizeName(name){
+  return String(name || "")
+    .toLowerCase()
+    .replace(/\(.*?\)/g, " ")                      // Klammerzusätze: "(tief)", "(Berlin)"
+    .replace(/^\s*(s\+u|u\+s|s-bahn|u-bahn|s|u|bhf|bf)\s+/i, " ")   // führendes Präfix
+    .replace(/\s+(bhf|bahnhof|bf)\b/g, " ")        // angehängtes "Bhf"/"Bahnhof"
+    .replace(/\bhauptbahnhof\b/g, "hbf")           // einheitlich "hbf"
+    .replace(/[.,;]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function dbFallbackFor(name){
-  const k = name.trim().toLowerCase();
-  if(DB_IBNR_FALLBACK[k]) return { ...DB_IBNR_FALLBACK[k], _fallback:true };
-  // Auch Zusätze wie "Berlin Hbf (tief)" oder "Michendorf, Bahnhof" zuordnen.
-  // Nur ausreichend lange Präfixe, damit es keine Fehlgriffe gibt.
-  if(k.length >= 5){
-    const cands = Object.entries(DB_IBNR_FALLBACK)
-      .filter(([key]) => k.startsWith(key) && key.length >= 5)
-      .sort((a,b) => b[0].length - a[0].length);          // längster Treffer gewinnt
-    if(cands.length) return { ...cands[0][1], _fallback:true };
+  const k = dbNormalizeName(name);
+  if(!k) return null;
+
+  // 1. Direkter Treffer auf den normalisierten Namen
+  for(const [key, v] of Object.entries(DB_IBNR_FALLBACK)){
+    if(dbNormalizeName(key) === k) return { ...v, _fallback:true };
   }
+
+  // 2. Der Kernname steckt im gesuchten Namen (oder umgekehrt).
+  //    Längster Treffer gewinnt, damit "berlin hbf" nicht an "berlin" scheitert.
+  const cands = Object.entries(DB_IBNR_FALLBACK)
+    .map(([key, v]) => [dbNormalizeName(key), v])
+    .filter(([key]) => key.length >= 5 && (k.includes(key) || key.includes(k)))
+    .sort((a, b) => b[0].length - a[0].length);
+  if(cands.length) return { ...cands[0][1], _fallback:true };
+
   return null;
 }
 
@@ -2077,15 +2103,19 @@ async function dbLookupStation(name){
     } finally { clearTimeout(kill); }
   };
 
+  let hit = null;
   try{
-    const hit = await Promise.any(tries.map(attempt));
-    dbStationCache[key] = hit;
-    return hit;
-  }catch{
-    const fb = dbFallbackFor(name);          // fest hinterlegte IBNR als Notnagel
-    dbStationCache[key] = fb;
-    return fb;
-  }
+    hit = await Promise.any(tries.map(attempt));
+  }catch{ /* keiner der Wege hat geklappt */ }
+
+  // Nur brauchbar, wenn eine Bahnhofsnummer bzw. eine fertige Kennung dabei ist –
+  // sonst entsteht ein Link ohne L=, den bahn.de mit
+  // "Keine Verbindungen gefunden" quittiert.
+  const usable = hit && (hit.extId || (hit.id && /@L=\d+@/.test(hit.id)));
+  if(!usable) hit = dbFallbackFor(name) || hit;
+
+  dbStationCache[key] = hit || null;
+  return hit || null;
 }
 
 function buildDbLink(q, fromName, toName, dbFrom, dbTo){
