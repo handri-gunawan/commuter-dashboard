@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- Dashboard-Build: 2026-07-17-hintergrund-fix-3 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -969,17 +970,26 @@ function applySky(kind, night){
   document.documentElement.style.backgroundColor = b;
 
   // Sonne bzw. Mond nur bei klarem oder leicht bewölktem Himmel
-  const orb = document.getElementById("skyOrb");
-  const showOrb = ["clear","cloudy"].includes(kind);
-  if(showOrb){
-    orb.style.background = night
-      ? "radial-gradient(circle at 50% 50%, rgba(210,225,255,.30) 0%, rgba(210,225,255,.08) 42%, transparent 68%)"
-      : "radial-gradient(circle at 50% 50%, rgba(255,214,120,.42) 0%, rgba(255,180,80,.13) 45%, transparent 70%)";
-  }
-  orb.classList.toggle("on", showOrb);
+  try{
+    const orb = document.getElementById("skyOrb");
+    const showOrb = ["clear","cloudy"].includes(kind);
+    if(orb){
+      if(showOrb){
+        orb.style.background = night
+          ? "radial-gradient(circle at 50% 50%, rgba(210,225,255,.30) 0%, rgba(210,225,255,.08) 42%, transparent 68%)"
+          : "radial-gradient(circle at 50% 50%, rgba(255,214,120,.42) 0%, rgba(255,180,80,.13) 45%, transparent 70%)";
+      }
+      orb.classList.toggle("on", showOrb);
+    }
+  }catch{ /* rein optisch – darf den Hintergrund nicht verhindern */ }
 
   currentSkyKind = kind;
-  startSkyFx(kind);
+  // Die Regen-/Schnee-Partikelanimation ist reine Deko. Ein Fehler darin
+  // (z. B. Canvas nicht verfügbar) darf niemals den bereits gesetzten
+  // Hintergrund rückgängig machen oder loadWeather() in den Fehlerzweig
+  // schicken – deshalb hier abgefangen statt weitergereicht.
+  try{ startSkyFx(kind); }
+  catch(e){ console.warn("Regen-/Schneeanimation übersprungen:", e); }
 }
 
 
