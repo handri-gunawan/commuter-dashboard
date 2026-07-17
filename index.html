@@ -294,6 +294,81 @@
   .eventcard a:hover{text-decoration:underline}
   .infonote{font-size:12px;color:var(--muted);line-height:1.5;margin-top:4px}
 
+  /* ---------- RE7-Baustellen-Panel ---------- */
+  .re7panel{
+    background:var(--panel);border:1px solid var(--line);
+    border-radius:var(--radius);padding:18px;margin:10px 0 4px;
+    display:none;
+  }
+  .re7panel.open{display:block}
+  .re7head{
+    display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;
+    gap:10px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--line);
+  }
+  .re7head h3{
+    font-size:14px;letter-spacing:.06em;text-transform:uppercase;color:var(--amber);
+    display:flex;align-items:center;gap:9px;
+  }
+  .re7head h3 .re7chip{
+    background:var(--re);color:#fff;font-size:12px;font-weight:800;letter-spacing:.04em;
+    border-radius:5px;padding:3px 9px;text-transform:none;
+  }
+  .re7stamp{font-size:11.5px;color:var(--muted)}
+  .re7sum{
+    display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;
+  }
+  .re7stat{
+    display:flex;align-items:baseline;gap:7px;
+    background:var(--bg);border:1px solid var(--line);border-radius:9px;
+    padding:8px 13px;font-size:12.5px;color:var(--muted);
+  }
+  .re7stat b{font-size:17px;font-weight:800;color:var(--text);font-variant-numeric:tabular-nums}
+  .re7stat.warn b{color:var(--sev)}
+  .re7stat.bad b{color:var(--red)}
+  .re7stat.ok b{color:var(--green)}
+
+  .re7group{margin-bottom:16px}
+  .re7group:last-of-type{margin-bottom:0}
+  .re7group > h4{
+    font-size:12px;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--muted);margin-bottom:8px;display:flex;align-items:center;gap:7px;
+  }
+  .re7item{
+    background:var(--bg);border:1px solid var(--line);border-left:3px solid var(--line);
+    border-radius:9px;padding:12px 14px;margin-bottom:8px;
+    font-size:13.5px;line-height:1.55;
+  }
+  .re7item.sev{border-left-color:var(--sev)}
+  .re7item.bau{border-left-color:var(--amber)}
+  .re7item.stoer{border-left-color:var(--red)}
+  .re7item .re7txt b{color:var(--text)}
+  .re7item .re7tags{
+    display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;
+  }
+  .re7tag{
+    font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+    border-radius:4px;padding:2px 7px;border:1px solid var(--line);color:var(--muted);
+  }
+  .re7tag.sev{background:var(--sev);border-color:var(--sev);color:#fff}
+  .re7tag.bau{border-color:var(--amber);color:var(--amber)}
+  .re7tag.stoer{background:var(--red);border-color:var(--red);color:#fff}
+  .re7tag.time{border-color:var(--green);color:var(--green)}
+  .re7links{
+    margin-top:16px;padding-top:14px;border-top:1px solid var(--line);
+  }
+  .re7links h4{
+    font-size:12px;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--muted);margin-bottom:9px;
+  }
+  .re7link{
+    display:flex;justify-content:space-between;gap:10px;align-items:center;
+    background:var(--bg);border:1px solid var(--line);border-radius:9px;
+    padding:11px 14px;margin-bottom:7px;font-size:13px;
+  }
+  .re7link .re7linkmeta{font-size:11.5px;color:var(--muted);margin-top:3px;line-height:1.4}
+  .re7link a{color:var(--amber);text-decoration:none;font-weight:700;white-space:nowrap}
+  .re7link a:hover{text-decoration:underline}
+
   /* ---------- Statuszeile ---------- */
   .statusbar{
     display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;
@@ -520,7 +595,18 @@
              aria-label="Mindest-Umsteigezeit in Minuten"> Min
     </span>
     <button id="btnCustom" onclick="toggleSearchPanel()">🔍 Eigene Suche</button>
+    <button id="btnRe7" onclick="toggleRe7Panel()">🚧 RE7-Baumaßnahmen</button>
     <button id="btnInfo" onclick="toggleInfoPanel()">ℹ️ Alle Streckeninfos</button>
+  </div>
+
+  <div class="re7panel" id="re7Panel">
+    <div class="re7head">
+      <h3><span class="re7chip">RE7</span> Aktuelle Baumaßnahmen &amp; Störungen</h3>
+      <span class="re7stamp" id="re7Stamp">–</span>
+    </div>
+    <div id="re7Body">
+      <div class="infonote">Wird geladen …</div>
+    </div>
   </div>
 
   <div class="searchpanel" id="searchPanel">
@@ -869,6 +955,10 @@ async function refresh(){
     renderJourneys(lastJourneys, q);
     if(document.getElementById("infoPanel").classList.contains("open")){
       renderDisruptions();
+    }
+    if(document.getElementById("re7Panel").classList.contains("open")){
+      re7Loaded = false;
+      loadRe7();
     }
 
     document.getElementById("lastUpdate").textContent =
@@ -1402,6 +1492,178 @@ function resetToStandard(){
   state.timeMode = "auto";
   document.getElementById("searchPanel").classList.remove("open");
   refresh();
+}
+
+/* ---------- RE7-Baumaßnahmen (VBB-Live + DB-Regio-Verweise) ---------- */
+// Wichtige Halte entlang des RE7 (Dessau – Bad Belzig – Michendorf – Berlin – Wünsdorf).
+// Wir fragen die Abfahrtstafeln mehrerer Punkte ab, damit auch Meldungen sichtbar werden,
+// die nicht in den gerade angezeigten Verbindungen vorkommen.
+const RE7_PROBES = [
+  "Michendorf", "Bad Belzig", "Berlin Wannsee",
+  "Berlin Hauptbahnhof", "Berlin Ostkreuz", "Zossen"
+];
+let re7Loaded = false;
+
+function re7Classify(text){
+  if(/ersatzverkehr|\bsev\b|schienenersatz|busnotverkehr/i.test(text)) return "sev";
+  if(/bauarbeiten|baustelle|bauma(ß|ss)nahme|sanierung|saniert|erneuer|umbau|instandsetzung|gleisarbeiten|streckensperrung/i.test(text)) return "bau";
+  if(/st(ö|oe)rung|fällt aus|ausfall|verspätung|notarzt|polizeieinsatz|signalstörung|stellwerk|weichenstörung|personen im gleis|gesperrt|unbespielbar|verzögerung/i.test(text)) return "stoer";
+  return "info";
+}
+const RE7_LABEL = { sev:"Ersatzverkehr", bau:"Bauarbeiten", stoer:"Störung", info:"Hinweis" };
+
+// Zeitraum aus einer VBB-Meldung ziehen (uneinheitlich geliefert)
+function re7Period(r){
+  const from = r.validFrom || r.fromDate || r.modified;
+  const to   = r.validUntil || r.toDate || r.until;
+  const f = d => { const x = new Date(d); return isNaN(x) ? null
+    : x.toLocaleDateString("de-DE",{day:"2-digit",month:"2-digit",year:"numeric"}); };
+  const a = from ? f(from) : null, b = to ? f(to) : null;
+  if(a && b) return `${a} – ${b}`;
+  if(b) return `bis ${b}`;
+  if(a) return `ab ${a}`;
+  return "";
+}
+
+async function fetchRe7Remarks(){
+  const found = [];
+  const results = await Promise.allSettled(RE7_PROBES.map(async name => {
+    const stop = await resolveStation(name);
+    const p = new URLSearchParams({
+      duration:"720", results:"40", remarks:"true", language:"de",
+      regional:"true", regionalExpress:"true",
+      suburban:"false", subway:"false", tram:"false", bus:"false", ferry:"false", express:"false"
+    });
+    const res = await fetch(`${API}/stops/${encodeURIComponent(stop.id)}/departures?${p}`);
+    if(!res.ok) throw new Error();
+    const data = await res.json();
+    const deps = data.departures || data || [];
+    for(const d of deps){
+      const ln = d.line?.name || "";
+      if(!/\bRE\s?7\b/i.test(ln)) continue;        // nur RE7
+      for(const r of (d.remarks || [])){
+        if(!["warning","status","hint"].includes(r.type)) continue;
+        const text = stripTags(r.text || r.summary || "");
+        if(!text || text.length < 8 || isIgnoredRemark(text)) continue;
+        found.push({ text, period: re7Period(r), station: name });
+      }
+      if(d.cancelled){
+        found.push({ text:`Fahrt ab ${d.stop?.name || name} Richtung ${d.direction || "–"} um `
+          + `${fmtTime(d.plannedWhen || d.when)} Uhr fällt aus`, period:"", station:name });
+      }
+    }
+    return true;
+  }));
+  const reachable = results.some(r => r.status === "fulfilled");
+  if(!reachable) throw new Error("Keine RE7-Daten vom VBB erreichbar");
+
+  // Entduplizieren: gleicher Text = eine Meldung, betroffene Orte zusammenfassen
+  const map = new Map();
+  for(const f of found){
+    const key = f.text.toLowerCase();
+    if(map.has(key)){ map.get(key).stations.add(f.station); }
+    else map.set(key, { text:f.text, period:f.period, stations:new Set([f.station]) });
+  }
+  return [...map.values()].map(m => ({ ...m, kind: re7Classify(m.text), stations:[...m.stations] }));
+}
+
+function renderRe7(items){
+  const body = document.getElementById("re7Body");
+  const order = ["sev","bau","stoer","info"];
+  const counts = Object.fromEntries(order.map(k => [k, items.filter(i => i.kind === k).length]));
+
+  const summary = `
+    <div class="re7sum">
+      <span class="re7stat${items.length ? "" : " ok"}"><b>${items.length}</b> Meldung${items.length === 1 ? "" : "en"} gesamt</span>
+      ${counts.sev   ? `<span class="re7stat warn"><b>${counts.sev}</b> Ersatzverkehr</span>` : ""}
+      ${counts.bau   ? `<span class="re7stat warn"><b>${counts.bau}</b> Bauarbeiten</span>` : ""}
+      ${counts.stoer ? `<span class="re7stat bad"><b>${counts.stoer}</b> Störung${counts.stoer === 1 ? "" : "en"}</span>` : ""}
+    </div>`;
+
+  const groups = order.filter(k => counts[k]).map(k => `
+    <div class="re7group">
+      <h4>${k === "sev" ? "🚌 Ersatzverkehr" : k === "bau" ? "🚧 Bauarbeiten & Sanierungen"
+           : k === "stoer" ? "⛔ Störungen & Ausfälle" : "ℹ️ Sonstige Hinweise"} · ${counts[k]}</h4>
+      ${items.filter(i => i.kind === k).map(i => `
+        <div class="re7item ${k}">
+          <div class="re7txt">${esc(i.text)}</div>
+          <div class="re7tags">
+            <span class="re7tag ${k}">${RE7_LABEL[k]}</span>
+            ${i.period ? `<span class="re7tag time">🕒 ${esc(i.period)}</span>` : ""}
+            ${i.stations.length ? `<span class="re7tag">gemeldet ab ${esc(i.stations.join(", "))}</span>` : ""}
+          </div>
+        </div>`).join("")}
+    </div>`).join("");
+
+  const empty = `<div class="infonote">Der VBB meldet aktuell keine Baumaßnahmen oder Störungen für den RE7
+    an den geprüften Halten (${RE7_PROBES.join(", ")}, nächste 12 Stunden).
+    Längerfristige Bauvorhaben, die erst später beginnen, tauchen hier erst kurz vorher auf –
+    dafür lohnt der Blick in die DB-Regio-Verkehrsinfo unten.</div>`;
+
+  body.innerHTML = summary + (items.length ? groups : empty) + `
+    <div class="re7links">
+      <h4>Offizielle RE7-Bauinformationen (langfristig)</h4>
+      <div class="re7link">
+        <div>
+          <div><b>DB Regio Nordost · Verkehrsinfo RE7</b></div>
+          <div class="re7linkmeta">Bauarbeiten &amp; Störungen direkt nach RE7 gefiltert. Hinweis der DB:
+            Störungsmeldungen werden dort derzeit teils verzögert geliefert.</div>
+        </div>
+        <a href="https://www.dbregio-berlin-brandenburg.de/db-regio-no/Fahren/Baustellen-und-Stoerungen/?lines=RE%207" target="_blank" rel="noopener">Öffnen ↗</a>
+      </div>
+      <div class="re7link">
+        <div>
+          <div><b>DB Bauinfos</b></div>
+          <div class="re7linkmeta">Deutschlandweite Übersicht aller Bauvorhaben inkl. Vorlaufzeiten</div>
+        </div>
+        <a href="https://bauinfos.deutschebahn.com/" target="_blank" rel="noopener">Öffnen ↗</a>
+      </div>
+      <div class="re7link">
+        <div>
+          <div><b>VBB-Verkehrsmeldungen</b></div>
+          <div class="re7linkmeta">Meldungen des Verkehrsverbunds für alle Linien in Berlin &amp; Brandenburg</div>
+        </div>
+        <a href="https://www.vbb.de/fahrinfo/verkehrsmeldungen/" target="_blank" rel="noopener">Öffnen ↗</a>
+      </div>
+      <div class="re7link">
+        <div>
+          <div><b>Bau-Newsletter / DB Streckenagent</b></div>
+          <div class="re7linkmeta">Meldungen zur eigenen Strecke automatisch per E-Mail – für Pendler:innen</div>
+        </div>
+        <a href="https://dbstreckenagent.de?selectedRegion=DB_Regio_NordOst" target="_blank" rel="noopener">Öffnen ↗</a>
+      </div>
+      <div class="infonote">Die Live-Meldungen oben stammen aus dem VBB-Echtzeitsystem, durch das der RE7 (ODEG) läuft.
+        Die DB-Regio-Seite lässt sich technisch nicht direkt einbinden, weil sie ihre Meldungen erst im Browser nachlädt
+        und Fremdzugriffe blockiert – deshalb der direkte Link.</div>
+    </div>`;
+}
+
+async function loadRe7(){
+  const body = document.getElementById("re7Body");
+  const stamp = document.getElementById("re7Stamp");
+  body.innerHTML = `<div class="state" style="padding:34px 20px"><div class="spinner"></div>RE7-Meldungen werden geladen …</div>`;
+  stamp.textContent = "wird geladen …";
+  try{
+    const items = await fetchRe7Remarks();
+    renderRe7(items);
+    stamp.textContent = "Stand: " + new Date().toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"}) + " Uhr";
+    re7Loaded = true;
+  }catch(err){
+    stamp.textContent = "nicht verfügbar";
+    body.innerHTML = `<div class="infonote">RE7-Meldungen konnten nicht geladen werden (${esc(err.message)}).
+      Bitte Internetverbindung prüfen und den Button erneut antippen – oder direkt bei DB Regio nachsehen:</div>
+      <div class="re7link" style="margin-top:10px">
+        <div><b>DB Regio Nordost · Verkehrsinfo RE7</b></div>
+        <a href="https://www.dbregio-berlin-brandenburg.de/db-regio-no/Fahren/Baustellen-und-Stoerungen/?lines=RE%207" target="_blank" rel="noopener">Öffnen ↗</a>
+      </div>`;
+  }
+}
+
+function toggleRe7Panel(){
+  const p = document.getElementById("re7Panel");
+  const open = p.classList.toggle("open");
+  document.getElementById("btnRe7").classList.toggle("active", open);
+  if(open && !re7Loaded) loadRe7();
 }
 
 function toggleInfoPanel(){
