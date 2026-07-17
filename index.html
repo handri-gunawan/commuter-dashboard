@@ -35,7 +35,29 @@
     font-family:"Archivo",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
     min-height:100vh;
     padding:20px 16px 60px;
+    position:relative;
   }
+
+  /* ---------- Wetterabhängiger Hintergrund ---------- */
+  /* Zwei Ebenen hinter allem: ein Farbverlauf je Wetterlage + optionale Partikel */
+  .skybg{
+    position:fixed;inset:0;z-index:-2;pointer-events:none;
+    background:var(--sky, radial-gradient(120% 90% at 50% 0%, #1b2740 0%, #101623 60%));
+    transition:background 1.2s ease;
+  }
+  .skyfx{position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden}
+  .skyfx canvas{width:100%;height:100%;display:block;opacity:.55}
+
+  /* Sonne / Mond als weicher Lichtschein */
+  .skyorb{
+    position:fixed;z-index:-2;pointer-events:none;
+    width:clamp(180px,42vw,340px);aspect-ratio:1;border-radius:50%;
+    top:-14%;right:-8%;
+    background:var(--orb, none);
+    filter:blur(6px);opacity:0;transition:opacity 1.4s ease;
+  }
+  .skyorb.on{opacity:1}
+  @media (prefers-reduced-motion:reduce){.skyfx{display:none}}
   .wrap{max-width:860px;margin:0 auto}
 
   /* ---------- Kopf ---------- */
@@ -129,7 +151,7 @@
   }
   .wchip{
     display:flex;align-items:center;gap:10px;
-    background:var(--panel);border:1px solid var(--line);
+    background:rgba(26,35,51,.8);backdrop-filter:blur(10px);border:1px solid var(--line);
     border-radius:12px;padding:9px 14px;font-size:13px;
   }
   .wchip .wicon{font-size:22px;line-height:1}
@@ -165,6 +187,43 @@
   .controls{
     display:flex;flex-wrap:wrap;gap:10px;margin:22px 0 10px;
   }
+
+  /* ---------- Reiterleiste ---------- */
+  .tabbar{
+    display:flex;gap:6px;margin:14px 0 0;
+    background:rgba(26,35,51,.72);backdrop-filter:blur(10px);
+    border:1px solid var(--line);border-radius:999px;padding:5px;
+    overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;
+  }
+  .tabbar::-webkit-scrollbar{display:none}
+  .tab{
+    display:inline-flex;align-items:center;gap:7px;flex:none;
+    background:transparent;border:none;border-radius:999px;
+    padding:9px 15px;font-size:13.5px;font-weight:600;color:var(--muted);
+    white-space:nowrap;position:relative;
+  }
+  .tab .ticon{font-size:14px;line-height:1}
+  .tab:hover{background:var(--panel-2);color:var(--text)}
+  .tab[aria-selected="true"]{background:var(--amber);color:#231a05;font-weight:700}
+  .tab[aria-selected="true"]:hover{background:#ffd177}
+  .tab .tdot{
+    width:7px;height:7px;border-radius:50%;background:var(--green);flex:none;
+  }
+  .tab[aria-selected="true"] .tdot{background:#231a05}
+  .tab .tbadge{
+    min-width:18px;height:18px;border-radius:9px;flex:none;
+    background:var(--red);color:#fff;font-size:11px;font-weight:800;
+    display:inline-flex;align-items:center;justify-content:center;padding:0 5px;
+  }
+
+  .panel{display:none}
+  .panel.open{display:block}
+  .bfpanel{
+    background:rgba(26,35,51,.82);backdrop-filter:blur(10px);
+    border:1px solid var(--line);border-radius:var(--radius);
+    padding:16px 18px;margin:10px 0 4px;
+  }
+  .bfrow{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px}
   button{
     font-family:inherit;font-size:14px;font-weight:600;
     border:1px solid var(--line);border-radius:999px;
@@ -213,11 +272,10 @@
 
   /* ---------- Eigene Suche ---------- */
   .searchpanel{
-    background:var(--panel);border:1px solid var(--line);
+    background:rgba(26,35,51,.82);backdrop-filter:blur(10px);
+    border:1px solid var(--line);
     border-radius:var(--radius);padding:18px;margin:10px 0 4px;
-    display:none;
   }
-  .searchpanel.open{display:block}
   .searchgrid{
     display:grid;grid-template-columns:1fr 1fr;gap:12px;
   }
@@ -261,11 +319,10 @@
 
   /* ---------- Info-Panel ---------- */
   .infopanel{
-    background:var(--panel);border:1px solid var(--line);
+    background:rgba(26,35,51,.82);backdrop-filter:blur(10px);
+    border:1px solid var(--line);
     border-radius:var(--radius);padding:18px;margin:10px 0 4px;
-    display:none;
   }
-  .infopanel.open{display:block}
   .infosection{margin-bottom:18px}
   .infosection:last-child{margin-bottom:0}
   .infosection h3{
@@ -295,12 +352,11 @@
   .infonote{font-size:12px;color:var(--muted);line-height:1.5;margin-top:4px}
 
   /* ---------- RE7-Baustellen-Panel ---------- */
-  .re7panel{
-    background:var(--panel);border:1px solid var(--line);
+  .re7panel, .policepanel{
+    background:rgba(26,35,51,.82);backdrop-filter:blur(10px);
+    border:1px solid var(--line);
     border-radius:var(--radius);padding:18px;margin:10px 0 4px;
-    display:none;
   }
-  .re7panel.open{display:block}
   .re7head{
     display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;
     gap:10px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--line);
@@ -369,6 +425,37 @@
   .re7link a{color:var(--amber);text-decoration:none;font-weight:700;white-space:nowrap}
   .re7link a:hover{text-decoration:underline}
 
+  /* ---------- Polizeimeldungen ---------- */
+  .polfilter{
+    display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;
+  }
+  .polfilter button{
+    font-size:12px;font-weight:700;padding:6px 12px;border-radius:999px;
+    background:var(--bg);border:1px solid var(--line);color:var(--muted);
+  }
+  .polfilter button.on{border-color:var(--amber);color:var(--amber);background:rgba(255,194,75,.08)}
+  .politem{
+    display:block;text-decoration:none;color:inherit;
+    background:var(--bg);border:1px solid var(--line);border-left:3px solid var(--ubahn);
+    border-radius:9px;padding:12px 14px;margin-bottom:8px;
+  }
+  .politem:hover{border-color:#3d4f73;background:var(--panel-2)}
+  .politem.hot{border-left-color:var(--red)}
+  .politem.traffic{border-left-color:var(--sev)}
+  .poltitle{font-size:14px;font-weight:700;line-height:1.4;color:var(--text)}
+  .politem:hover .poltitle{color:var(--amber)}
+  .polmeta{
+    display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px;
+    font-size:11.5px;color:var(--muted);
+  }
+  .poltag{
+    font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
+    border:1px solid var(--line);border-radius:4px;padding:2px 7px;color:var(--muted);
+  }
+  .poltag.hit{border-color:var(--amber);color:var(--amber)}
+  .poltag.hot{background:var(--red);border-color:var(--red);color:#fff}
+  .poltag.traffic{background:var(--sev);border-color:var(--sev);color:#fff}
+
   /* ---------- Statuszeile ---------- */
   .statusbar{
     display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;
@@ -383,7 +470,8 @@
   /* ---------- Fahrtkarten (Anzeigetafel-Stil) ---------- */
   .journeys{display:flex;flex-direction:column;gap:14px}
   .card{
-    background:var(--panel);border:1px solid var(--line);
+    background:rgba(26,35,51,.86);backdrop-filter:blur(10px);
+    border:1px solid var(--line);
     border-radius:var(--radius);overflow:hidden;
   }
   .card.cancelled{opacity:.65;border-color:var(--red)}
@@ -552,6 +640,9 @@
 </style>
 </head>
 <body>
+<div class="skybg" id="skyBg"></div>
+<div class="skyorb" id="skyOrb"></div>
+<div class="skyfx" id="skyFx"></div>
 <div class="wrap">
 
   <header>
@@ -587,19 +678,36 @@
       <button id="btnTimeNow" onclick="setTimeMode('now')">Abfahrt: jetzt</button>
       <button id="btnTimePreset" onclick="setTimeMode('preset')">Abfahrt: –</button>
     </span>
-    <button id="btnBf" onclick="toggleBarrierefrei()">♿ Barrierefrei &amp; mehr Umsteigezeit</button>
-    <span class="transferctl" id="transferCtl" style="display:none">
-      <label for="inTransfer">Umsteigezeit</label>
-      <input id="inTransfer" type="number" min="0" max="60" step="1" value="15"
-             inputmode="numeric" onchange="onTransferChange()"
-             aria-label="Mindest-Umsteigezeit in Minuten"> Min
-    </span>
-    <button id="btnCustom" onclick="toggleSearchPanel()">🔍 Eigene Suche</button>
-    <button id="btnRe7" onclick="toggleRe7Panel()">🚧 RE7-Baumaßnahmen</button>
-    <button id="btnInfo" onclick="toggleInfoPanel()">ℹ️ Alle Streckeninfos</button>
   </div>
 
-  <div class="re7panel" id="re7Panel">
+  <div class="tabbar" id="tabBar" role="tablist" aria-label="Zusatzfunktionen">
+    <button class="tab" id="tabBf" role="tab" aria-selected="false" aria-controls="bfPanel"
+            onclick="openTab('bf')"><span class="ticon">♿</span>Barrierefrei<span class="tdot" id="bfDot" hidden></span></button>
+    <button class="tab" id="tabCustom" role="tab" aria-selected="false" aria-controls="searchPanel"
+            onclick="openTab('custom')"><span class="ticon">🔍</span>Eigene Suche</button>
+    <button class="tab" id="tabRe7" role="tab" aria-selected="false" aria-controls="re7Panel"
+            onclick="openTab('re7')"><span class="ticon">🚧</span>RE7-Bau</button>
+    <button class="tab" id="tabPolice" role="tab" aria-selected="false" aria-controls="policePanel"
+            onclick="openTab('police')"><span class="ticon">🚓</span>Polizeimeldungen</button>
+    <button class="tab" id="tabInfo" role="tab" aria-selected="false" aria-controls="infoPanel"
+            onclick="openTab('info')"><span class="ticon">ℹ️</span>Streckeninfos</button>
+  </div>
+
+  <div class="panel bfpanel" id="bfPanel" role="tabpanel" aria-labelledby="tabBf">
+    <div class="bfrow">
+      <button id="btnBf" onclick="toggleBarrierefrei()">♿ Nur barrierefreie Verbindungen</button>
+      <span class="transferctl" id="transferCtl" style="display:none">
+        <label for="inTransfer">Umsteigezeit</label>
+        <input id="inTransfer" type="number" min="0" max="60" step="1" value="15"
+               inputmode="numeric" onchange="onTransferChange()"
+               aria-label="Mindest-Umsteigezeit in Minuten"> Min
+      </span>
+    </div>
+    <div class="infonote">Zeigt ausschließlich vollständig rollstuhlgeeignete Verbindungen mit der
+      eingestellten Mindest-Umsteigezeit (0–60 Minuten). Bleibt aktiv, auch wenn dieser Reiter geschlossen ist.</div>
+  </div>
+
+  <div class="panel re7panel" id="re7Panel" role="tabpanel" aria-labelledby="tabRe7">
     <div class="re7head">
       <h3><span class="re7chip">RE7</span> Aktuelle Baumaßnahmen &amp; Störungen</h3>
       <span class="re7stamp" id="re7Stamp">–</span>
@@ -609,7 +717,15 @@
     </div>
   </div>
 
-  <div class="searchpanel" id="searchPanel">
+  <div class="panel policepanel" id="policePanel" role="tabpanel" aria-labelledby="tabPolice">
+    <div class="re7head">
+      <h3><span class="re7chip" style="background:var(--ubahn)">🚓 Polizei Berlin</span> Meldungen mit Streckenbezug</h3>
+      <span class="re7stamp" id="policeStamp">–</span>
+    </div>
+    <div id="policeBody"><div class="infonote">Wird geladen …</div></div>
+  </div>
+
+  <div class="panel searchpanel" id="searchPanel" role="tabpanel" aria-labelledby="tabCustom">
     <div class="searchgrid">
       <div class="field ac">
         <label for="inFrom">Abfahrt (Haltestelle)</label>
@@ -647,7 +763,7 @@
     </div>
   </div>
 
-  <div class="infopanel" id="infoPanel">
+  <div class="panel infopanel" id="infoPanel" role="tabpanel" aria-labelledby="tabInfo">
     <div class="infosection">
       <h3>🚧 Baustellen, Sanierungen &amp; Störungen entlang eurer Strecke</h3>
       <div id="infoDisruptions"><div class="infonote">Wird beim Öffnen geladen …</div></div>
@@ -674,7 +790,10 @@
     Standard-Logik: Mo–Fr Hinfahrt Michendorf → Berlin Hbf (ab ca. 8:45 Uhr) und Rückfahrt ab 17 Uhr ·
     Sa/So Hinfahrt Michendorf → Berlin Westend (Ankunft bis 14:45 Uhr), Rückfahrt Sa ab 18 Uhr / So ab 19 Uhr.
     Barrierefrei-Modus: nur vollständig rollstuhlgeeignete Verbindungen mit mindestens 15 Minuten Umsteigezeit
-    (im Eingabefeld neben dem Button von 0 bis 60 Minuten frei einstellbar).
+    (im Reiter „Barrierefrei“ von 0 bis 60 Minuten frei einstellbar; der grüne Punkt am Reiter zeigt an,
+    dass der Filter aktiv ist – auch wenn der Reiter geschlossen ist).
+    Der Hintergrund passt sich automatisch dem aktuellen Wetter in Michendorf an (inkl. Tag/Nacht).
+    Polizeimeldungen: RSS-Feed der Polizei Berlin, automatisch nach Orten an eurer Strecke und Bahn-Stichwörtern gefiltert.
     Über den Titel oben lässt sich manuell eine feste Verbindung auswählen (Berlin Hbf, Berlin Westend,
     S-Bahn Griebnitzsee, Bad Belzig) – unabhängig von der automatischen Pendlerlogik.
     In der eigenen Suche schlägt das Dashboard ab dem zweiten Buchstaben passende Haltestellen vor
@@ -823,7 +942,7 @@ function updateTimeSegmentUI(){
 
 function setTimeMode(mode){
   state.custom = null;
-  document.getElementById("searchPanel").classList.remove("open");
+  if(activeTab === "custom") openTab("custom");   // Suchreiter schließen
   state.timeMode = (state.timeMode === mode) ? "auto" : mode; // erneutes Klicken hebt Auswahl auf
   refresh();
 }
@@ -1172,6 +1291,121 @@ function renderDetailModal(j, legs, tripDetails){
   `;
 }
 
+/* ---------- Wetterabhängiger Hintergrund ---------- */
+// Farbwelten je Wetterlage – jeweils für Tag und Nacht getrennt,
+// damit der Hintergrund abends nicht grell wird.
+const SKY_THEMES = {
+  clear:  { day:["#2d5f96","#16233a"], night:["#131f38","#0b0f1a"] },
+  cloudy: { day:["#41506b","#1a2130"], night:["#1c2536","#0d1119"] },
+  fog:    { day:["#4a5364","#20262f"], night:["#1e232c","#0c0f14"] },
+  rain:   { day:["#2c4155","#141c26"], night:["#131c28","#090d13"] },
+  snow:   { day:["#48596e","#1c242f"], night:["#1a222e","#0a0e14"] },
+  storm:  { day:["#3a2f56","#160f24"], night:["#1d1733","#0a0713"] }
+};
+function skyKind(code, precip, tMax){
+  if([95,96,99].includes(code)) return "storm";
+  if([71,73,75,77,85,86].includes(code) || (tMax <= 1 && precip >= 40)) return "snow";
+  if([61,63,65,80,81,82,51,53,55,56,57].includes(code)) return "rain";
+  if([45,48].includes(code)) return "fog";
+  if([2,3].includes(code)) return "cloudy";
+  if([0,1].includes(code)) return "clear";
+  return precip >= 50 ? "rain" : "cloudy";
+}
+function isNightNow(sunrise, sunset){
+  const now = Date.now();
+  const a = new Date(sunrise).getTime(), b = new Date(sunset).getTime();
+  if(isNaN(a) || isNaN(b)) { const h = new Date().getHours(); return h < 7 || h >= 20; }
+  return now < a || now > b;
+}
+
+let skyAnim = null;
+function stopSkyFx(){
+  if(skyAnim){ cancelAnimationFrame(skyAnim); skyAnim = null; }
+  document.getElementById("skyFx").innerHTML = "";
+}
+
+// Regen-/Schneepartikel auf einem Canvas – bewusst sparsam, damit der Akku hält
+function startSkyFx(kind){
+  stopSkyFx();
+  if(!["rain","snow","storm"].includes(kind)) return;
+  if(window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+  const host = document.getElementById("skyFx");
+  const cv = document.createElement("canvas");
+  host.appendChild(cv);
+  const ctx = cv.getContext("2d");
+  let w, h, parts;
+  const snow = kind === "snow";
+  const count = snow ? 70 : (kind === "storm" ? 130 : 100);
+
+  function size(){
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    w = cv.width = innerWidth * dpr;
+    h = cv.height = innerHeight * dpr;
+    ctx.scale(1,1);
+    parts = Array.from({length: count}, () => ({
+      x: Math.random()*w, y: Math.random()*h,
+      len: snow ? (1.6+Math.random()*2.2)*dpr : (9+Math.random()*16)*dpr,
+      vy: snow ? (0.4+Math.random()*0.8)*dpr : (7+Math.random()*7)*dpr,
+      vx: snow ? (Math.random()-0.5)*0.6*dpr : -1.1*dpr,
+      o: 0.25+Math.random()*0.45
+    }));
+  }
+  size();
+  addEventListener("resize", size, { passive:true });
+
+  function frame(){
+    ctx.clearRect(0,0,w,h);
+    for(const p of parts){
+      if(snow){
+        ctx.beginPath();
+        ctx.fillStyle = `rgba(226,238,255,${p.o})`;
+        ctx.arc(p.x, p.y, p.len, 0, Math.PI*2);
+        ctx.fill();
+      } else {
+        ctx.beginPath();
+        ctx.strokeStyle = `rgba(150,190,235,${p.o})`;
+        ctx.lineWidth = Math.max(1, p.len/14);
+        ctx.moveTo(p.x, p.y);
+        ctx.lineTo(p.x + p.vx*1.8, p.y + p.len);
+        ctx.stroke();
+      }
+      p.x += p.vx; p.y += p.vy;
+      if(p.y > h){ p.y = -20; p.x = Math.random()*w; }
+      if(p.x < -30) p.x = w + 20;
+    }
+    skyAnim = requestAnimationFrame(frame);
+  }
+  frame();
+}
+
+// Bei verstecktem Tab pausieren – spart Akku auf dem Handy
+document.addEventListener("visibilitychange", () => {
+  if(document.hidden){ if(skyAnim){ cancelAnimationFrame(skyAnim); skyAnim = null; } }
+  else if(currentSkyKind && !skyAnim) startSkyFx(currentSkyKind);
+});
+let currentSkyKind = null;
+
+function applySky(kind, night){
+  const th = SKY_THEMES[kind] || SKY_THEMES.cloudy;
+  const [a, b] = night ? th.night : th.day;
+  document.getElementById("skyBg").style.setProperty("--sky",
+    `radial-gradient(120% 92% at 50% -8%, ${a} 0%, ${b} 62%, var(--bg) 100%)`);
+
+  // Sonne bzw. Mond nur bei klarem oder leicht bewölktem Himmel
+  const orb = document.getElementById("skyOrb");
+  const showOrb = ["clear","cloudy"].includes(kind);
+  if(showOrb){
+    orb.style.setProperty("--orb", night
+      ? "radial-gradient(circle at 50% 50%, rgba(210,225,255,.30) 0%, rgba(210,225,255,.08) 42%, transparent 68%)"
+      : "radial-gradient(circle at 50% 50%, rgba(255,214,120,.42) 0%, rgba(255,180,80,.13) 45%, transparent 70%)");
+  }
+  orb.classList.toggle("on", showOrb);
+
+  currentSkyKind = kind;
+  startSkyFx(kind);
+}
+
 /* ---------- Kompakte Wetteranzeige (Open-Meteo, kostenlos, ohne API-Key) ---------- */
 const WEATHER_LOCS = [
   { label:"Michendorf", lat:52.2963, lon:12.9539 },
@@ -1197,11 +1431,13 @@ async function loadWeather(){
   try{
     const chips = await Promise.all(WEATHER_LOCS.map(async loc => {
       const url = `https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}`
-        + `&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode`
+        + `&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode,sunrise,sunset`
+        + `&current=weathercode,temperature_2m`
         + `&timezone=Europe%2FBerlin&forecast_days=1`;
       const res = await fetch(url);
       if(!res.ok) throw new Error("Wetterdaten nicht verfügbar");
       const d = await res.json();
+      loc.raw = d;
       const tMax = Math.round(d.daily.temperature_2m_max[0]);
       const tMin = Math.round(d.daily.temperature_2m_min[0]);
       const precip = Math.round(d.daily.precipitation_probability_max[0] ?? 0);
@@ -1218,8 +1454,19 @@ async function loadWeather(){
       </div>`;
     }));
     box.innerHTML = chips.join("");
+
+    // Hintergrund richtet sich nach dem aktuellen Wetter in Michendorf (Wohnort)
+    const home = WEATHER_LOCS[0].raw;
+    if(home){
+      const code = home.current?.weathercode ?? home.daily.weathercode[0];
+      const precip = Math.round(home.daily.precipitation_probability_max[0] ?? 0);
+      const tNow = home.current?.temperature_2m ?? home.daily.temperature_2m_max[0];
+      const night = isNightNow(home.daily.sunrise?.[0], home.daily.sunset?.[0]);
+      applySky(skyKind(code, precip, tNow), night);
+    }
   }catch(err){
     box.innerHTML = `<div class="wchip"><span class="wicon">⚠️</span><div><div class="wloc">Wetter</div><span class="wtemps" style="color:var(--muted);font-weight:600">nicht verfügbar</span></div></div>`;
+    applySky("cloudy", isNightNow(null, null));   // neutraler Hintergrund als Rückfallebene
   }
 }
 
@@ -1324,6 +1571,7 @@ function toggleBarrierefrei(){
   state.barrierefrei = !state.barrierefrei;
   document.getElementById("btnBf").classList.toggle("active", state.barrierefrei);
   document.getElementById("transferCtl").style.display = state.barrierefrei ? "" : "none";
+  document.getElementById("bfDot").hidden = !state.barrierefrei;   // Punkt im Reiter zeigt aktiven Filter
   refresh();
 }
 
@@ -1459,19 +1707,6 @@ function makeAutocomplete(inputId, boxId){
 makeAutocomplete("inFrom","acFrom");
 makeAutocomplete("inTo","acTo");
 
-function toggleSearchPanel(){
-  const p = document.getElementById("searchPanel");
-  p.classList.toggle("open");
-  if(p.classList.contains("open")){
-    const now = new Date();
-    if(!document.getElementById("inDate").value)
-      document.getElementById("inDate").value = now.toISOString().slice(0,10);
-    if(!document.getElementById("inTime").value)
-      document.getElementById("inTime").value = now.toTimeString().slice(0,5);
-    document.getElementById("inFrom").focus();
-  }
-}
-
 function runCustomSearch(){
   const from = document.getElementById("inFrom").value.trim();
   const to = document.getElementById("inTo").value.trim();
@@ -1490,7 +1725,7 @@ function runCustomSearch(){
 function resetToStandard(){
   state.custom = null;
   state.timeMode = "auto";
-  document.getElementById("searchPanel").classList.remove("open");
+  if(activeTab === "custom") openTab("custom");
   refresh();
 }
 
@@ -1659,19 +1894,205 @@ async function loadRe7(){
   }
 }
 
-function toggleRe7Panel(){
-  const p = document.getElementById("re7Panel");
-  const open = p.classList.toggle("open");
-  document.getElementById("btnRe7").classList.toggle("active", open);
-  if(open && !re7Loaded) loadRe7();
+/* ---------- Reiter-Steuerung ---------- */
+const TABS = {
+  bf:     { tab:"tabBf",     panel:"bfPanel" },
+  custom: { tab:"tabCustom", panel:"searchPanel" },
+  re7:    { tab:"tabRe7",    panel:"re7Panel" },
+  police: { tab:"tabPolice", panel:"policePanel" },
+  info:   { tab:"tabInfo",   panel:"infoPanel" }
+};
+let activeTab = null;
+
+function openTab(key){
+  const closing = (activeTab === key);           // erneuter Klick schließt den Reiter
+  activeTab = closing ? null : key;
+  for(const [k, t] of Object.entries(TABS)){
+    const on = (k === activeTab);
+    document.getElementById(t.panel).classList.toggle("open", on);
+    document.getElementById(t.tab).setAttribute("aria-selected", String(on));
+  }
+  if(closing) return;
+  if(key === "custom"){
+    const now = new Date();
+    if(!document.getElementById("inDate").value)
+      document.getElementById("inDate").value = now.toISOString().slice(0,10);
+    if(!document.getElementById("inTime").value)
+      document.getElementById("inTime").value = now.toTimeString().slice(0,5);
+    document.getElementById("inFrom").focus();
+  }
+  if(key === "re7" && !re7Loaded) loadRe7();
+  if(key === "police" && !policeLoaded) loadPolice();
+  if(key === "info"){ renderDisruptions(); renderEvents(); }
 }
 
-function toggleInfoPanel(){
-  const p = document.getElementById("infoPanel");
-  p.classList.toggle("open");
-  if(p.classList.contains("open")){
-    renderDisruptions();
-    renderEvents();
+/* ---------- Polizeimeldungen Berlin mit Streckenbezug ---------- */
+// berlin.de erlaubt keinen direkten Zugriff aus dem Browser (kein CORS),
+// deshalb holen wir den RSS-Feed über öffentliche Proxys – mit Rückfallebenen.
+const POLICE_RSS = "https://www.berlin.de/polizei/polizeimeldungen/index.php/rss";
+const POLICE_PROXIES = [
+  u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+  u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
+  u => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(u)}`
+];
+let policeLoaded = false, policeItems = [], policeFilter = "route";
+
+// Orte und Begriffe entlang eurer Strecke Michendorf ⇄ Berlin
+const POLICE_PLACES = [
+  "Michendorf","Seddin","Wilhelmshorst","Potsdam","Griebnitzsee","Wannsee","Zehlendorf",
+  "Steglitz","Schöneberg","Charlottenburg","Westend","Wilmersdorf","Grunewald","Halensee",
+  "Zoologischer Garten","Hauptbahnhof","Tiergarten","Mitte","Moabit","Spandau","Nikolassee",
+  "Friedrichstraße","Alexanderplatz","Ostkreuz","Südkreuz","Steglitz-Zehlendorf",
+  "Charlottenburg-Wilmersdorf","Bad Belzig","Beelitz","Ferch","Caputh","Zossen","Wünsdorf"
+];
+// Ereignisse, die den Bahnverkehr betreffen können
+const POLICE_TRAFFIC = [
+  "bahn","zug","gleis","bahnhof","s-bahn","regionalexpress","re7","bahnsteig","oberleitung",
+  "stellwerk","bahnübergang","schienen","personen im gleis","triebwagen","waggon"
+];
+const POLICE_HOT = [
+  "demonstration","demo","versammlung","aufzug","kundgebung","sperrung","gesperrt","evakuier",
+  "bombe","fliegerbombe","kampfmittel","weltkriegsbombe","großeinsatz","brand","feuer",
+  "unfall","gleisbett","stromausfall","räumung","absperr"
+];
+
+function polMatch(text, list){
+  const t = text.toLowerCase();
+  return list.filter(w => t.includes(w.toLowerCase()));
+}
+
+function polClassify(it){
+  const hay = `${it.title} ${it.desc}`;
+  const places = polMatch(hay, POLICE_PLACES);
+  const traffic = polMatch(hay, POLICE_TRAFFIC);
+  const hot = polMatch(hay, POLICE_HOT);
+  // Relevant = Ort an der Strecke ODER klarer Bahnbezug
+  const relevant = places.length > 0 || traffic.length > 0;
+  return { ...it, places, traffic, hot, relevant,
+           kind: traffic.length ? "traffic" : (hot.length ? "hot" : "normal") };
+}
+
+async function fetchPoliceFeed(){
+  let lastErr = null;
+  for(const mk of POLICE_PROXIES){
+    try{
+      const res = await fetch(mk(POLICE_RSS), { cache:"no-store" });
+      if(!res.ok) throw new Error(`HTTP ${res.status}`);
+      const xml = await res.text();
+      if(!/<item[\s>]/i.test(xml)) throw new Error("Feed leer");
+      const doc = new DOMParser().parseFromString(xml, "application/xml");
+      if(doc.querySelector("parsererror")) throw new Error("Feed nicht lesbar");
+      const items = [...doc.querySelectorAll("item")].map(n => {
+        const g = s => n.querySelector(s)?.textContent?.trim() || "";
+        return { title: stripTags(g("title")), link: g("link"),
+                 desc: stripTags(g("description")), date: g("pubDate") };
+      }).filter(i => i.title);
+      if(!items.length) throw new Error("Keine Meldungen im Feed");
+      return items;
+    }catch(e){ lastErr = e; }
+  }
+  throw lastErr || new Error("Feed nicht erreichbar");
+}
+
+function polAge(dateStr){
+  const d = new Date(dateStr);
+  if(isNaN(d)) return { txt:"", mins:1e9 };
+  const mins = Math.round((Date.now() - d) / 60000);
+  if(mins < 60) return { txt:`vor ${Math.max(0,mins)} Min`, mins };
+  if(mins < 1440) return { txt:`vor ${Math.round(mins/60)} Std`, mins };
+  return { txt: d.toLocaleDateString("de-DE",{day:"2-digit",month:"2-digit"}) + ", "
+           + d.toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"}) + " Uhr", mins };
+}
+
+function renderPolice(){
+  const body = document.getElementById("policeBody");
+  const rel = policeItems.filter(i => i.relevant);
+  const list = policeFilter === "route" ? rel : policeItems;
+
+  const filters = `
+    <div class="polfilter">
+      <button class="${policeFilter === "route" ? "on" : ""}" onclick="setPoliceFilter('route')">
+        📍 Nur eure Strecke · ${rel.length}</button>
+      <button class="${policeFilter === "all" ? "on" : ""}" onclick="setPoliceFilter('all')">
+        Alle Berliner Meldungen · ${policeItems.length}</button>
+    </div>`;
+
+  const rows = list.map(i => {
+    const a = polAge(i.date);
+    const tags = [
+      i.traffic.length ? `<span class="poltag traffic">Bahnbezug</span>` : "",
+      i.hot.length && !i.traffic.length ? `<span class="poltag hot">${esc(i.hot[0])}</span>` : "",
+      ...i.places.slice(0,3).map(p => `<span class="poltag hit">${esc(p)}</span>`)
+    ].filter(Boolean).join("");
+    return `<a class="politem ${i.kind}" href="${esc(i.link)}" target="_blank" rel="noopener">
+      <div class="poltitle">${esc(i.title)}</div>
+      <div class="polmeta">${a.txt ? `<span>🕒 ${esc(a.txt)}</span>` : ""}${tags}</div>
+    </a>`;
+  }).join("");
+
+  const empty = policeFilter === "route"
+    ? `<div class="infonote">Keine der aktuellen Polizeimeldungen betrifft Orte an eurer Strecke
+        oder den Bahnverkehr. Über den zweiten Filter oben lassen sich alle Berliner Meldungen anzeigen.</div>`
+    : `<div class="infonote">Aktuell keine Meldungen im Feed.</div>`;
+
+  body.innerHTML = filters + (list.length ? rows : empty) + `
+    <div class="re7links">
+      <div class="re7link">
+        <div>
+          <div><b>Polizei Berlin · Alle Polizeimeldungen</b></div>
+          <div class="re7linkmeta">Vollständige Meldungen der letzten zwei Wochen, direkt bei berlin.de</div>
+        </div>
+        <a href="https://www.berlin.de/polizei/polizeimeldungen/" target="_blank" rel="noopener">Öffnen ↗</a>
+      </div>
+      <div class="re7link">
+        <div>
+          <div><b>Polizei Brandenburg</b></div>
+          <div class="re7linkmeta">Meldungen für Michendorf, Potsdam-Mittelmark und Brandenburg</div>
+        </div>
+        <a href="https://polizei.brandenburg.de/liste/meldungen-und-warndienste/73508" target="_blank" rel="noopener">Öffnen ↗</a>
+      </div>
+      <div class="infonote">Die Zuordnung erfolgt automatisch über Ortsnamen und Bahn-Stichwörter im Meldungstext –
+        sie kann einzelne Meldungen übersehen oder zu viel anzeigen. Polizeimeldungen sind Pressemitteilungen,
+        keine Verkehrsmeldungen: für Zugausfälle bleiben die Reiter „RE7-Bau“ und „Streckeninfos“ maßgeblich.</div>
+    </div>`;
+}
+
+function setPoliceFilter(f){
+  policeFilter = f;
+  renderPolice();
+}
+
+function updatePoliceBadge(){
+  const tab = document.getElementById("tabPolice");
+  let b = tab.querySelector(".tbadge");
+  const hot = policeItems.filter(i => i.relevant && (i.traffic.length || i.hot.length)).length;
+  if(!hot){ if(b) b.remove(); return; }
+  if(!b){ b = document.createElement("span"); b.className = "tbadge"; tab.appendChild(b); }
+  b.textContent = hot;
+  b.title = `${hot} Meldung(en) mit Bahn- oder Einsatzbezug an eurer Strecke`;
+}
+
+async function loadPolice(){
+  const body = document.getElementById("policeBody");
+  const stamp = document.getElementById("policeStamp");
+  body.innerHTML = `<div class="state" style="padding:34px 20px"><div class="spinner"></div>Polizeimeldungen werden geladen …</div>`;
+  stamp.textContent = "wird geladen …";
+  try{
+    const raw = await fetchPoliceFeed();
+    policeItems = raw.map(polClassify);
+    renderPolice();
+    updatePoliceBadge();
+    stamp.textContent = "Stand: " + new Date().toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"}) + " Uhr";
+    policeLoaded = true;
+  }catch(err){
+    stamp.textContent = "nicht verfügbar";
+    body.innerHTML = `<div class="infonote">Die Polizeimeldungen konnten nicht geladen werden (${esc(err.message)}).
+      Der Feed von berlin.de erlaubt keinen direkten Zugriff aus dem Browser und wird über einen öffentlichen
+      Zwischendienst geholt – der ist gelegentlich nicht erreichbar. Bitte den Reiter erneut antippen oder direkt nachsehen:</div>
+      <div class="re7link" style="margin-top:10px">
+        <div><b>Polizei Berlin · Polizeimeldungen</b></div>
+        <a href="https://www.berlin.de/polizei/polizeimeldungen/" target="_blank" rel="noopener">Öffnen ↗</a>
+      </div>`;
   }
 }
 
