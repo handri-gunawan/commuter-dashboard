@@ -43,6 +43,35 @@
     font-size:11px;letter-spacing:.22em;text-transform:uppercase;
     color:var(--muted);margin-bottom:6px;
   }
+  .headtop{
+    display:flex;justify-content:space-between;align-items:flex-start;
+    gap:14px;margin-bottom:6px;
+  }
+  .headtop .eyebrow{margin-bottom:0}
+
+  /* ---------- Digitaluhr ---------- */
+  .clock{
+    display:flex;flex-direction:column;align-items:flex-end;flex:none;
+    line-height:1;
+  }
+  .clock .ctime{
+    font-variant-numeric:tabular-nums;
+    font-size:clamp(22px,5vw,30px);font-weight:800;letter-spacing:.02em;
+    color:var(--amber);
+  }
+  .clock .ctime .csec{
+    font-size:.55em;font-weight:700;color:var(--amber-dim);margin-left:2px;
+  }
+  .clock .ctime .csep{animation:blink 1s step-end infinite}
+  @keyframes blink{50%{opacity:.3}}
+  @media (prefers-reduced-motion:reduce){.clock .ctime .csep{animation:none}}
+  .clock .cdate{
+    font-size:11.5px;color:var(--muted);margin-top:5px;letter-spacing:.04em;
+  }
+  @media(max-width:480px){
+    .clock .ctime{font-size:20px}
+    .clock .cdate{font-size:10.5px}
+  }
   h1{
     font-size:clamp(22px,4.5vw,32px);
     font-weight:800;letter-spacing:.01em;line-height:1.15;
@@ -451,7 +480,13 @@
 <div class="wrap">
 
   <header>
-    <div class="eyebrow">Pendler-Dashboard · Familie Michendorf</div>
+    <div class="headtop">
+      <div class="eyebrow">Pendler-Dashboard · Familie Michendorf</div>
+      <div class="clock" id="clock" aria-live="off">
+        <div class="ctime" id="clockTime">--<span class="csep">:</span>--</div>
+        <div class="cdate" id="clockDate">–</div>
+      </div>
+    </div>
     <button type="button" class="titlebtn" id="routeTitleBtn" onclick="toggleRouteMenu()"
             aria-haspopup="listbox" aria-expanded="false">
       <h1 id="routeTitle">Michendorf <span class="arrow">→</span> Berlin Hbf</h1>
@@ -1467,6 +1502,33 @@ function checkTicketReminder(){
   box.classList.toggle("show", isLastDayOfMonth(now) && !dismissedToday);
 }
 
+/* ---------- Live-Digitaluhr ---------- */
+function tickClock(){
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2,"0");
+  const mm = String(now.getMinutes()).padStart(2,"0");
+  const ss = String(now.getSeconds()).padStart(2,"0");
+  document.getElementById("clockTime").innerHTML =
+    `${hh}<span class="csep">:</span>${mm}<span class="csec">${ss}</span>`;
+  document.getElementById("clockDate").textContent =
+    now.toLocaleDateString("de-DE",{weekday:"long",day:"2-digit",month:"2-digit",year:"numeric"});
+}
+
+// Auf die volle Sekunde synchronisieren, damit die Anzeige nicht nachläuft
+function startClock(){
+  tickClock();
+  setTimeout(() => {
+    tickClock();
+    setInterval(tickClock, 1000);
+  }, 1000 - (Date.now() % 1000));
+}
+
+// Nach Bildschirmsperre / Tab-Wechsel sofort wieder korrekt anzeigen
+document.addEventListener("visibilitychange", () => {
+  if(!document.hidden) tickClock();
+});
+
+startClock();
 checkTicketReminder();
 refresh();
 </script>
