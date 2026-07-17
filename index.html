@@ -203,6 +203,33 @@
   .searchactions{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}
   @media(max-width:560px){.searchgrid{grid-template-columns:1fr}}
 
+  /* ---------- Haltestellen-Vorschläge (Autocomplete) ---------- */
+  .field.ac{position:relative}
+  .acbox{
+    display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:60;
+    background:var(--panel-2);border:1px solid var(--line);border-radius:10px;
+    box-shadow:0 12px 28px rgba(0,0,0,.45);
+    max-height:260px;overflow-y:auto;padding:4px;
+  }
+  .acbox.open{display:block}
+  .acitem{
+    display:flex;align-items:center;gap:9px;
+    padding:9px 10px;border-radius:7px;cursor:pointer;
+    font-size:14px;color:var(--text);line-height:1.3;
+  }
+  .acitem:hover,.acitem.sel{background:var(--bg)}
+  .acitem .acicon{flex:none;font-size:13px;opacity:.85}
+  .acitem .acname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .acitem .acname b{color:var(--amber);font-weight:800}
+  .acitem .acprods{
+    flex:none;display:flex;gap:3px;
+  }
+  .acitem .acp{
+    font-size:9.5px;font-weight:800;letter-spacing:.03em;color:#fff;
+    border-radius:3px;padding:1px 4px;
+  }
+  .acnote{padding:9px 10px;font-size:12.5px;color:var(--muted)}
+
   /* ---------- Info-Panel ---------- */
   .infopanel{
     background:var(--panel);border:1px solid var(--line);
@@ -463,13 +490,19 @@
 
   <div class="searchpanel" id="searchPanel">
     <div class="searchgrid">
-      <div class="field">
+      <div class="field ac">
         <label for="inFrom">Abfahrt (Haltestelle)</label>
-        <input id="inFrom" type="text" placeholder="z. B. Michendorf" value="Michendorf">
+        <input id="inFrom" type="text" placeholder="z. B. Michendorf" value="Michendorf"
+               autocomplete="off" role="combobox" aria-autocomplete="list"
+               aria-expanded="false" aria-controls="acFrom">
+        <div class="acbox" id="acFrom" role="listbox" aria-label="Vorschläge Abfahrt"></div>
       </div>
-      <div class="field">
+      <div class="field ac">
         <label for="inTo">Ziel (Haltestelle)</label>
-        <input id="inTo" type="text" placeholder="z. B. Berlin Westend">
+        <input id="inTo" type="text" placeholder="z. B. Berlin Westend"
+               autocomplete="off" role="combobox" aria-autocomplete="list"
+               aria-expanded="false" aria-controls="acTo">
+        <div class="acbox" id="acTo" role="listbox" aria-label="Vorschläge Ziel"></div>
       </div>
       <div class="field">
         <label for="inDate">Datum</label>
@@ -523,6 +556,8 @@
     (im Eingabefeld neben dem Button von 0 bis 60 Minuten frei einstellbar).
     Über den Titel oben lässt sich manuell eine feste Verbindung auswählen (Berlin Hbf, Berlin Westend,
     S-Bahn Griebnitzsee, Bad Belzig) – unabhängig von der automatischen Pendlerlogik.
+    In der eigenen Suche schlägt das Dashboard ab dem zweiten Buchstaben passende Haltestellen vor
+    (Auswahl per Maus, Fingertipp oder Pfeiltasten + Enter).
   </div>
 </div>
 
@@ -1176,6 +1211,128 @@ function onTransferChange(){
   state.transferMin = v;
   if(state.barrierefrei) refresh();
 }
+
+/* ---------- Haltestellen-Vorschläge (Autocomplete, wie bei bahn.de) ---------- */
+const AC_PRODUCTS = {
+  nationalExpress:{ l:"ICE", c:"var(--re)" },
+  national:{ l:"IC", c:"var(--re)" },
+  regionalExpress:{ l:"RE", c:"var(--re)" },
+  regional:{ l:"RB", c:"var(--re)" },
+  suburban:{ l:"S", c:"var(--sbahn)" },
+  subway:{ l:"U", c:"var(--ubahn)" },
+  tram:{ l:"T", c:"var(--tram)" },
+  bus:{ l:"Bus", c:"var(--bus)" },
+  ferry:{ l:"F", c:"var(--walk)" }
+};
+const acSuggestCache = {};
+
+function acProductBadges(stop){
+  const p = stop.products || {};
+  const out = [];
+  for(const [key, def] of Object.entries(AC_PRODUCTS)){
+    if(p[key]) out.push(`<span class="acp" style="background:${def.c}">${def.l}</span>`);
+  }
+  return out.length ? `<span class="acprods">${out.slice(0,5).join("")}</span>` : "";
+}
+
+// Hebt den getippten Teil im Vorschlag hervor
+function acHighlight(name, query){
+  const safe = esc(name);
+  const q = query.trim();
+  if(!q) return safe;
+  const idx = safe.toLowerCase().indexOf(esc(q).toLowerCase());
+  if(idx < 0) return safe;
+  return safe.slice(0, idx) + "<b>" + safe.slice(idx, idx + q.length) + "</b>" + safe.slice(idx + q.length);
+}
+
+async function acFetch(query){
+  const key = query.trim().toLowerCase();
+  if(acSuggestCache[key]) return acSuggestCache[key];
+  const res = await fetch(`${API}/locations?query=${encodeURIComponent(query)}`
+    + `&results=8&fuzzy=true&stops=true&addresses=false&poi=false&linesOfStops=false&language=de`);
+  if(!res.ok) throw new Error("Vorschläge konnten nicht geladen werden");
+  const list = (await res.json()).filter(l => l.type === "stop" || l.type === "station");
+  acSuggestCache[key] = list;
+  return list;
+}
+
+function makeAutocomplete(inputId, boxId){
+  const input = document.getElementById(inputId);
+  const box = document.getElementById(boxId);
+  let timer = null, items = [], sel = -1, reqId = 0;
+
+  function close(){
+    box.classList.remove("open");
+    input.setAttribute("aria-expanded","false");
+    sel = -1;
+  }
+  function open(){
+    box.classList.add("open");
+    input.setAttribute("aria-expanded","true");
+  }
+  function paint(){
+    [...box.querySelectorAll(".acitem")].forEach((el, i) => el.classList.toggle("sel", i === sel));
+  }
+  function choose(i){
+    const s = items[i];
+    if(!s) return;
+    input.value = s.name;
+    // Direkt in den Stations-Cache, damit resolveStation keine zweite Abfrage braucht
+    stationCache[s.name.trim().toLowerCase()] = s;
+    close();
+  }
+  function render(list, query){
+    items = list;
+    sel = -1;
+    if(!list.length){
+      box.innerHTML = `<div class="acnote">Keine Haltestelle gefunden.</div>`;
+      open();
+      return;
+    }
+    box.innerHTML = list.map((s, i) => `
+      <div class="acitem" role="option" aria-selected="false" data-i="${i}">
+        <span class="acicon">📍</span>
+        <span class="acname">${acHighlight(s.name || "", query)}</span>
+        ${acProductBadges(s)}
+      </div>`).join("");
+    box.querySelectorAll(".acitem").forEach(el => {
+      el.addEventListener("mousedown", e => { e.preventDefault(); choose(+el.dataset.i); });
+      el.addEventListener("mouseenter", () => { sel = +el.dataset.i; paint(); });
+    });
+    open();
+  }
+
+  input.addEventListener("input", () => {
+    const q = input.value.trim();
+    clearTimeout(timer);
+    if(q.length < 2){ close(); return; }
+    timer = setTimeout(async () => {
+      const my = ++reqId;
+      try{
+        const list = await acFetch(q);
+        if(my !== reqId) return;           // veraltete Antwort verwerfen
+        if(document.activeElement !== input) return;
+        render(list, q);
+      }catch{
+        if(my === reqId) close();
+      }
+    }, 220);
+  });
+
+  input.addEventListener("keydown", e => {
+    if(!box.classList.contains("open")) return;
+    if(e.key === "ArrowDown"){ e.preventDefault(); sel = Math.min(sel + 1, items.length - 1); paint(); }
+    else if(e.key === "ArrowUp"){ e.preventDefault(); sel = Math.max(sel - 1, 0); paint(); }
+    else if(e.key === "Enter"){ if(sel >= 0){ e.preventDefault(); choose(sel); } }
+    else if(e.key === "Escape"){ close(); }
+  });
+
+  input.addEventListener("blur", () => setTimeout(close, 120));
+  input.addEventListener("focus", () => { if(items.length && input.value.trim().length >= 2) open(); });
+}
+
+makeAutocomplete("inFrom","acFrom");
+makeAutocomplete("inTo","acTo");
 
 function toggleSearchPanel(){
   const p = document.getElementById("searchPanel");
