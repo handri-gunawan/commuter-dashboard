@@ -29,31 +29,35 @@
   }
   *{box-sizing:border-box;margin:0;padding:0}
   html{color-scheme:dark}
+  /* Hintergrundfarbe liegt auf <html>, damit die Sky-Ebenen darüber sichtbar bleiben.
+     body bekommt KEINEN eigenen Hintergrund und kein position/z-index,
+     sonst entsteht ein Stacking-Context und die Ebenen verschwinden dahinter. */
+  html{background:var(--bg)}
   body{
-    background:var(--bg);
+    background:transparent;
     color:var(--text);
     font-family:"Archivo",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
     min-height:100vh;
     padding:20px 16px 60px;
-    position:relative;
   }
+  .wrap{position:relative;z-index:1}
 
   /* ---------- Wetterabhängiger Hintergrund ---------- */
   /* Zwei Ebenen hinter allem: ein Farbverlauf je Wetterlage + optionale Partikel */
   .skybg{
-    position:fixed;inset:0;z-index:-2;pointer-events:none;
-    background:var(--sky, radial-gradient(120% 90% at 50% 0%, #1b2740 0%, #101623 60%));
+    position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:radial-gradient(120% 92% at 50% -8%, #1b2740 0%, #101623 62%, #101623 100%);
     transition:background 1.2s ease;
   }
-  .skyfx{position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden}
+  .skyfx{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
   .skyfx canvas{width:100%;height:100%;display:block;opacity:.55}
 
   /* Sonne / Mond als weicher Lichtschein */
   .skyorb{
-    position:fixed;z-index:-2;pointer-events:none;
+    position:fixed;z-index:0;pointer-events:none;
     width:clamp(180px,42vw,340px);aspect-ratio:1;border-radius:50%;
     top:-14%;right:-8%;
-    background:var(--orb, none);
+    background:none;
     filter:blur(6px);opacity:0;transition:opacity 1.4s ease;
   }
   .skyorb.on{opacity:1}
@@ -456,6 +460,41 @@
   .poltag.hot{background:var(--red);border-color:var(--red);color:#fff}
   .poltag.traffic{background:var(--sev);border-color:var(--sev);color:#fff}
 
+  /* ---------- DB Navigator ---------- */
+  .dbpanel{
+    background:rgba(26,35,51,.82);backdrop-filter:blur(10px);
+    border:1px solid var(--line);border-radius:var(--radius);
+    padding:18px;margin:10px 0 4px;
+  }
+  .dbsummary{
+    background:var(--bg);border:1px solid var(--line);border-radius:10px;
+    padding:14px;margin-bottom:14px;
+  }
+  .dbrow{
+    display:flex;gap:10px;align-items:baseline;
+    padding:7px 0;font-size:13.5px;border-bottom:1px solid var(--line);
+  }
+  .dbrow:last-child{border-bottom:none}
+  .dbrow .dbk{
+    flex:none;width:118px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--muted);
+  }
+  .dbrow .dbv{flex:1;color:var(--text);font-weight:600}
+  .dbrow .dbv .dbsub{display:block;font-size:11.5px;color:var(--muted);font-weight:400;margin-top:2px}
+  .dbopen{
+    display:flex;align-items:center;justify-content:center;gap:9px;width:100%;
+    background:var(--re);border-color:var(--re);color:#fff;
+    font-size:15px;font-weight:700;padding:14px 18px;border-radius:11px;
+    text-decoration:none;
+  }
+  .dbopen:hover{background:#ee3b41;border-color:#ee3b41}
+  .dbhint{
+    display:flex;gap:9px;background:rgba(255,194,75,.08);border:1px solid var(--amber);
+    border-radius:9px;padding:11px 13px;margin-top:12px;font-size:12.5px;
+    color:var(--text);line-height:1.5;
+  }
+  .dbhint .ic{flex:none}
+
   /* ---------- Statuszeile ---------- */
   .statusbar{
     display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;
@@ -689,6 +728,8 @@
             onclick="openTab('re7')"><span class="ticon">🚧</span>RE7-Bau</button>
     <button class="tab" id="tabPolice" role="tab" aria-selected="false" aria-controls="policePanel"
             onclick="openTab('police')"><span class="ticon">🚓</span>Polizeimeldungen</button>
+    <button class="tab" id="tabDb" role="tab" aria-selected="false" aria-controls="dbPanel"
+            onclick="openTab('db')"><span class="ticon">🚉</span>DB Navigator</button>
     <button class="tab" id="tabInfo" role="tab" aria-selected="false" aria-controls="infoPanel"
             onclick="openTab('info')"><span class="ticon">ℹ️</span>Streckeninfos</button>
   </div>
@@ -715,6 +756,14 @@
     <div id="re7Body">
       <div class="infonote">Wird geladen …</div>
     </div>
+  </div>
+
+  <div class="panel dbpanel" id="dbPanel" role="tabpanel" aria-labelledby="tabDb">
+    <div class="re7head">
+      <h3><span class="re7chip" style="background:var(--re)">🚉 DB Navigator</span> Aktuelle Suche übernehmen</h3>
+      <span class="re7stamp" id="dbStamp">–</span>
+    </div>
+    <div id="dbBody"><div class="infonote">Wird vorbereitet …</div></div>
   </div>
 
   <div class="panel policepanel" id="policePanel" role="tabpanel" aria-labelledby="tabPolice">
@@ -793,7 +842,10 @@
     (im Reiter „Barrierefrei“ von 0 bis 60 Minuten frei einstellbar; der grüne Punkt am Reiter zeigt an,
     dass der Filter aktiv ist – auch wenn der Reiter geschlossen ist).
     Der Hintergrund passt sich automatisch dem aktuellen Wetter in Michendorf an (inkl. Tag/Nacht).
-    Polizeimeldungen: RSS-Feed der Polizei Berlin, automatisch nach Orten an eurer Strecke und Bahn-Stichwörtern gefiltert.
+    Polizeimeldungen: RSS-Feed der Polizei Berlin, automatisch nach Orten an eurer Strecke und Bahn-Stichwörtern gefiltert;
+    wird im Hintergrund vorgeladen und für 10 Minuten zwischengespeichert.
+    Der Reiter „DB Navigator“ übergibt die aktuell angezeigte Suche (Start, Ziel, Zeit, Barrierefrei-Einstellung)
+    per Link an die DB-Navigator-App bzw. an bahn.de.
     Über den Titel oben lässt sich manuell eine feste Verbindung auswählen (Berlin Hbf, Berlin Westend,
     S-Bahn Griebnitzsee, Bad Belzig) – unabhängig von der automatischen Pendlerlogik.
     In der eigenen Suche schlägt das Dashboard ab dem zweiten Buchstaben passende Haltestellen vor
@@ -1043,6 +1095,8 @@ async function refresh(){
   try{
     updateTimeSegmentUI();
     const q = state.custom ? buildCustomQuery() : buildStandardQuery();
+    dbLastQuery = q;                                   // für den DB-Navigator-Reiter merken
+    if(activeTab === "db") renderDbPanel();
 
     document.getElementById("routeTitle").innerHTML =
       esc(q.title).replace("→", `<span class="arrow">→</span>`);
@@ -1389,16 +1443,16 @@ let currentSkyKind = null;
 function applySky(kind, night){
   const th = SKY_THEMES[kind] || SKY_THEMES.cloudy;
   const [a, b] = night ? th.night : th.day;
-  document.getElementById("skyBg").style.setProperty("--sky",
-    `radial-gradient(120% 92% at 50% -8%, ${a} 0%, ${b} 62%, var(--bg) 100%)`);
+  document.getElementById("skyBg").style.background =
+    `radial-gradient(120% 92% at 50% -8%, ${a} 0%, ${b} 62%, ${b} 100%)`;
 
   // Sonne bzw. Mond nur bei klarem oder leicht bewölktem Himmel
   const orb = document.getElementById("skyOrb");
   const showOrb = ["clear","cloudy"].includes(kind);
   if(showOrb){
-    orb.style.setProperty("--orb", night
+    orb.style.background = night
       ? "radial-gradient(circle at 50% 50%, rgba(210,225,255,.30) 0%, rgba(210,225,255,.08) 42%, transparent 68%)"
-      : "radial-gradient(circle at 50% 50%, rgba(255,214,120,.42) 0%, rgba(255,180,80,.13) 45%, transparent 70%)");
+      : "radial-gradient(circle at 50% 50%, rgba(255,214,120,.42) 0%, rgba(255,180,80,.13) 45%, transparent 70%)";
   }
   orb.classList.toggle("on", showOrb);
 
@@ -1900,6 +1954,7 @@ const TABS = {
   custom: { tab:"tabCustom", panel:"searchPanel" },
   re7:    { tab:"tabRe7",    panel:"re7Panel" },
   police: { tab:"tabPolice", panel:"policePanel" },
+  db:     { tab:"tabDb",     panel:"dbPanel" },
   info:   { tab:"tabInfo",   panel:"infoPanel" }
 };
 let activeTab = null;
@@ -1923,7 +1978,104 @@ function openTab(key){
   }
   if(key === "re7" && !re7Loaded) loadRe7();
   if(key === "police" && !policeLoaded) loadPolice();
+  if(key === "db") renderDbPanel();
   if(key === "info"){ renderDisruptions(); renderEvents(); }
+}
+
+/* ---------- DB Navigator: aktuelle Suche als Deep-Link übergeben ---------- */
+// bahn.de erwartet die Stationen als "soid/zoid" mit EVA-Nummer (IBNR).
+// Die VBB-Haltestellen-IDs SIND die EVA-Nummern – dadurch lässt sich der Link exakt aufbauen.
+// Ein Klick öffnet auf dem Handy die DB-Navigator-App (sofern installiert), sonst bahn.de.
+function dbStationParam(stop){
+  const eva = String(stop.id).replace(/\D/g, "");
+  const name = stop.name || "";
+  // Format: A=1@O=<Name>@L=<EVA>@  – A=1 bedeutet "Haltestelle"
+  return { id: `A=1@O=${name}@L=${eva}@`, eva, name };
+}
+
+function buildDbLink(q, from, to){
+  const s = dbStationParam(from), z = dbStationParam(to);
+  const when = q.when instanceof Date ? q.when : new Date(q.when);
+  // bahn.de erwartet lokale Zeit ohne Zeitzonen-Suffix
+  const pad = n => String(n).padStart(2,"0");
+  const hd = `${when.getFullYear()}-${pad(when.getMonth()+1)}-${pad(when.getDate())}`
+           + `T${pad(when.getHours())}:${pad(when.getMinutes())}:00`;
+
+  const p = new URLSearchParams();
+  p.set("sts","true");
+  p.set("so", s.name);
+  p.set("zo", z.name);
+  p.set("soid", s.id);
+  p.set("zoid", z.id);
+  p.set("sot","ST");           // Start ist eine Station
+  p.set("zot","ST");
+  p.set("soei", s.eva);
+  p.set("zoei", z.eva);
+  p.set("hd", hd);
+  p.set("hza", q.isArrival ? "A" : "D");   // A = Ankunftszeit, D = Abfahrtszeit
+  p.set("kl","2");             // 2. Klasse
+  p.set("r", `13:16:KLASSENLOS:1`);
+  p.set("ar","false");
+  p.set("bp","false");
+  p.set("dltv", "true");       // Deutschlandticket-Verbindungen bevorzugen
+  // Umsteigezeit nur mitgeben, wenn im Barrierefrei-Modus bewusst gesetzt
+  if(state.barrierefrei){
+    p.set("ums", String(state.transferMin));   // Mindest-Umsteigezeit in Minuten
+    p.set("bar","true");                       // barrierefreie Verbindungen
+  }
+  // URLSearchParams kodiert @ = : roh benötigt, und macht aus Leerzeichen "+" –
+  // im Hash-Teil erwartet bahn.de aber %20, sonst landen Pluszeichen im Stationsnamen.
+  const hash = p.toString()
+    .replace(/\+/g,"%20")
+    .replace(/%40/g,"@").replace(/%3D/g,"=").replace(/%3A/g,":");
+  return `https://www.bahn.de/buchung/fahrplan/suche#${hash}`;
+}
+
+let dbLastQuery = null;   // wird bei jedem refresh() gefüllt
+
+async function renderDbPanel(){
+  const body = document.getElementById("dbBody");
+  const stamp = document.getElementById("dbStamp");
+  if(!dbLastQuery){
+    body.innerHTML = `<div class="infonote">Noch keine Suche geladen. Bitte erst „Aktualisieren“ antippen.</div>`;
+    return;
+  }
+  body.innerHTML = `<div class="state" style="padding:28px 20px"><div class="spinner"></div>Link wird vorbereitet …</div>`;
+  try{
+    const q = dbLastQuery;
+    const [from, to] = await Promise.all([resolveStation(q.fromQ), resolveStation(q.toQ)]);
+    const link = buildDbLink(q, from, to);
+    const when = q.when instanceof Date ? q.when : new Date(q.when);
+
+    body.innerHTML = `
+      <div class="dbsummary">
+        <div class="dbrow"><span class="dbk">Abfahrt</span>
+          <span class="dbv">${esc(from.name)}<span class="dbsub">EVA ${esc(String(from.id).replace(/\D/g,""))}</span></span></div>
+        <div class="dbrow"><span class="dbk">Ziel</span>
+          <span class="dbv">${esc(to.name)}<span class="dbsub">EVA ${esc(String(to.id).replace(/\D/g,""))}</span></span></div>
+        <div class="dbrow"><span class="dbk">${q.isArrival ? "Ankunft bis" : "Abfahrt ab"}</span>
+          <span class="dbv">${esc(fmtDate(when))}, ${esc(fmtTime(when.toISOString()))} Uhr</span></div>
+        <div class="dbrow"><span class="dbk">Klasse</span><span class="dbv">2. Klasse · D-Ticket-Verbindungen</span></div>
+        ${state.barrierefrei ? `
+        <div class="dbrow"><span class="dbk">Barrierefrei</span>
+          <span class="dbv" style="color:var(--green)">♿ aktiv · min. ${state.transferMin} Min Umstieg</span></div>` : ""}
+      </div>
+      <a class="dbopen" href="${esc(link)}" target="_blank" rel="noopener">
+        🚉 Im DB Navigator öffnen ↗
+      </a>
+      <div class="dbhint">
+        <span class="ic">💡</span>
+        <span>Auf dem iPhone öffnet der Link die <b>DB-Navigator-App</b>, sofern sie installiert ist –
+          sonst bahn.de im Browser. Die Umsteigezeit übernimmt die DB nur teilweise;
+          sie lässt sich dort unter „Optionen“ nachjustieren.</span>
+      </div>`;
+    stamp.textContent = "Suche übernommen";
+  }catch(err){
+    body.innerHTML = `<div class="infonote">Der Link konnte nicht aufgebaut werden (${esc(err.message)}).</div>
+      <a class="dbopen" style="margin-top:10px" href="https://www.bahn.de/buchung/fahrplan/suche" target="_blank" rel="noopener">
+        🚉 DB Navigator ohne Vorgaben öffnen ↗</a>`;
+    stamp.textContent = "eingeschränkt";
+  }
 }
 
 /* ---------- Polizeimeldungen Berlin mit Streckenbezug ---------- */
@@ -1972,26 +2124,47 @@ function polClassify(it){
            kind: traffic.length ? "traffic" : (hot.length ? "hot" : "normal") };
 }
 
+// Zwischenspeicher für die laufende Sitzung – beim zweiten Öffnen ist der Reiter sofort da
+const POLICE_CACHE_KEY = "policeFeedCache";
+const POLICE_CACHE_MS = 10 * 60 * 1000;   // 10 Minuten
+function readPoliceCache(){
+  try{
+    const c = JSON.parse(sessionStorage.getItem(POLICE_CACHE_KEY) || "null");
+    if(!c || Date.now() - c.t > POLICE_CACHE_MS) return null;
+    return c;
+  }catch{ return null; }
+}
+
 async function fetchPoliceFeed(){
-  let lastErr = null;
-  for(const mk of POLICE_PROXIES){
+  // Früher liefen die Proxys nacheinander – jeder hängende Dienst kostete den vollen Timeout.
+  // Jetzt starten alle gleichzeitig, der schnellste brauchbare gewinnt.
+  const attempt = async (mk) => {
+    const ctrl = new AbortController();
+    const kill = setTimeout(() => ctrl.abort(), 7000);   // hängende Proxys abbrechen
     try{
-      const res = await fetch(mk(POLICE_RSS), { cache:"no-store" });
+      const res = await fetch(mk(POLICE_RSS), { signal: ctrl.signal });
       if(!res.ok) throw new Error(`HTTP ${res.status}`);
       const xml = await res.text();
       if(!/<item[\s>]/i.test(xml)) throw new Error("Feed leer");
       const doc = new DOMParser().parseFromString(xml, "application/xml");
       if(doc.querySelector("parsererror")) throw new Error("Feed nicht lesbar");
-      const items = [...doc.querySelectorAll("item")].map(n => {
+      const items = [...doc.querySelectorAll("item")].slice(0, 60).map(n => {
         const g = s => n.querySelector(s)?.textContent?.trim() || "";
         return { title: stripTags(g("title")), link: g("link"),
                  desc: stripTags(g("description")), date: g("pubDate") };
       }).filter(i => i.title);
       if(!items.length) throw new Error("Keine Meldungen im Feed");
       return items;
-    }catch(e){ lastErr = e; }
+    } finally { clearTimeout(kill); }
+  };
+
+  try{
+    const items = await Promise.any(POLICE_PROXIES.map(attempt));
+    try{ sessionStorage.setItem(POLICE_CACHE_KEY, JSON.stringify({ t: Date.now(), items })); }catch{}
+    return items;
+  }catch{
+    throw new Error("kein Zwischendienst erreichbar");
   }
-  throw lastErr || new Error("Feed nicht erreichbar");
 }
 
 function polAge(dateStr){
@@ -2072,9 +2245,36 @@ function updatePoliceBadge(){
   b.title = `${hot} Meldung(en) mit Bahn- oder Einsatzbezug an eurer Strecke`;
 }
 
+// Im Hintergrund vorladen, damit der Reiter beim Antippen bereits gefüllt ist
+function prefetchPolice(){
+  if(policeLoaded || readPoliceCache()) return;
+  fetchPoliceFeed().then(raw => {
+    policeItems = raw.map(polClassify);
+    policeLoaded = true;
+    updatePoliceBadge();
+    if(activeTab === "police"){
+      renderPolice();
+      document.getElementById("policeStamp").textContent =
+        "Stand: " + new Date().toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"}) + " Uhr";
+    }
+  }).catch(() => { /* egal – beim Antippen wird erneut versucht */ });
+}
+
 async function loadPolice(){
   const body = document.getElementById("policeBody");
   const stamp = document.getElementById("policeStamp");
+
+  // Frischer Zwischenspeicher? Dann ohne jede Wartezeit anzeigen.
+  const cached = readPoliceCache();
+  if(cached){
+    policeItems = cached.items.map(polClassify);
+    renderPolice();
+    updatePoliceBadge();
+    policeLoaded = true;
+    stamp.textContent = "Stand: " + new Date(cached.t).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"}) + " Uhr";
+    return;
+  }
+
   body.innerHTML = `<div class="state" style="padding:34px 20px"><div class="spinner"></div>Polizeimeldungen werden geladen …</div>`;
   stamp.textContent = "wird geladen …";
   try{
@@ -2214,6 +2414,9 @@ document.addEventListener("visibilitychange", () => {
 startClock();
 checkTicketReminder();
 refresh();
+// Polizeimeldungen im Hintergrund vorladen, sobald der Browser Luft hat
+if("requestIdleCallback" in window) requestIdleCallback(prefetchPolice, { timeout: 4000 });
+else setTimeout(prefetchPolice, 2500);
 </script>
 </body>
 </html>
