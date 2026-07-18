@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- Dashboard-Build: 2026-07-18-polizeimeldungen-schneller -->
+<!-- Dashboard-Build: 2026-07-18-cors-dienste-erneuert -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -2147,10 +2147,11 @@ async function dbLookupStation(name){
   // Alle Wege gleichzeitig starten, der schnellste brauchbare gewinnt.
   const tries = [
     u => u,                                                      // falls doch erlaubt
+    u => `https://proxy.corsfix.com/?${u}`,                      // produktionstauglich
+    u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,  // JSON-Wrapper
     u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
-    u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
     u => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(u)}`,
-    u => `https://thingproxy.freeboard.io/fetch/${u}`
+    u => `https://cors.x2u.in/${u}`
   ];
 
   const attempt = async (mk) => {
@@ -2159,7 +2160,11 @@ async function dbLookupStation(name){
     try{
       const res = await fetch(mk(url), { signal: ctrl.signal });
       if(!res.ok) throw new Error(`HTTP ${res.status}`);
-      const list = await res.json();
+      let list = await res.json();
+      // allorigins /get verpackt die Antwort als {contents:"...json..."} → auspacken
+      if(list && typeof list.contents === "string"){
+        try{ list = JSON.parse(list.contents); }catch{ throw new Error("Wrapper nicht lesbar"); }
+      }
       const arr = Array.isArray(list) ? list : (list?.orte || []);
       // Nur echte Haltestellen mit Bahnhofsnummer, keine Adressen/POIs
       const hit = arr.find(o => (o.extId || o.id) && (!o.type || /ST|STATION|BAHNHOF/i.test(o.type)))
@@ -2294,11 +2299,34 @@ async function renderDbPanel(){
 /* ---------- Polizeimeldungen Berlin mit Streckenbezug ---------- */
 // berlin.de erlaubt keinen direkten Zugriff aus dem Browser (kein CORS),
 // deshalb holen wir den RSS-Feed über öffentliche Zwischendienste.
-// rss2json ist auf genau diesen Zweck spezialisiert und in der Praxis meist
-// deutlich schneller als die generischen CORS-Proxys – deshalb als erster
-// Kandidat mit dabei, alle starten aber gleichzeitig (der schnellste gewinnt).
+//
+// Wichtig (Stand 2026): Die klassischen Gratis-CORS-Proxys sind für eine dauerhaft
+// öffentlich gehostete Seite (github.io) NICHT mehr verlässlich:
+//  · corsproxy.io verlangt für produktive Domains einen API-Schlüssel und
+//    hat HTML-Inhalte gesperrt (nur noch JSON/XML/CSV),
+//  · allorigins /raw fällt zeitweise aus.
+// Deshalb steht jetzt Corsfix an erster Stelle (bietet für öffentliche
+// Open-Source-Projekte kostenlosen, unbegrenzten Zugriff), und allorigins wird
+// zusätzlich über den JSON-Wrapper /get angesprochen, der die HTML/XML-Sperren
+// mancher Dienste umgeht, weil der Feed in JSON verpackt geliefert wird.
+// Alle Varianten starten gleichzeitig – der schnellste brauchbare gewinnt.
 const POLICE_RSS = "https://www.berlin.de/polizei/polizeimeldungen/index.php/rss";
 
+// Wandelt den RSS-XML-Text in unsere einheitliche Meldungsstruktur um.
+function parsePoliceXml(xml){
+  if(!/<item[\s>]/i.test(xml)) throw new Error("Feed leer");
+  const doc = new DOMParser().parseFromString(xml, "application/xml");
+  if(doc.querySelector("parsererror")) throw new Error("Feed nicht lesbar");
+  const items = [...doc.querySelectorAll("item")].slice(0, 60).map(n => {
+    const g = s => n.querySelector(s)?.textContent?.trim() || "";
+    return { title: stripTags(g("title")), link: g("link"),
+             desc: stripTags(g("description")), date: g("pubDate") };
+  }).filter(i => i.title);
+  if(!items.length) throw new Error("Keine Meldungen im Feed");
+  return items;
+}
+
+// rss2json liefert den Feed fertig als JSON.
 async function policeViaRss2Json(signal){
   const url = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(POLICE_RSS)}&count=60`;
   const res = await fetch(url, { signal });
@@ -2313,27 +2341,32 @@ async function policeViaRss2Json(signal){
   return items;
 }
 
+// allorigins /get verpackt den Feed in JSON ({contents: "...xml..."}).
+// Umgeht Dienste, die reines HTML/XML blockieren.
+async function policeViaAllOriginsJson(signal){
+  const url = `https://api.allorigins.win/get?url=${encodeURIComponent(POLICE_RSS)}`;
+  const res = await fetch(url, { signal });
+  if(!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  if(!data || !data.contents) throw new Error("allorigins leer");
+  return parsePoliceXml(data.contents);
+}
+
+// Generische Proxys, die den Feed als reinen Text/XML zurückgeben.
 async function policeViaProxy(mk, signal){
   const res = await fetch(mk(POLICE_RSS), { signal });
   if(!res.ok) throw new Error(`HTTP ${res.status}`);
-  const xml = await res.text();
-  if(!/<item[\s>]/i.test(xml)) throw new Error("Feed leer");
-  const doc = new DOMParser().parseFromString(xml, "application/xml");
-  if(doc.querySelector("parsererror")) throw new Error("Feed nicht lesbar");
-  const items = [...doc.querySelectorAll("item")].slice(0, 60).map(n => {
-    const g = s => n.querySelector(s)?.textContent?.trim() || "";
-    return { title: stripTags(g("title")), link: g("link"),
-             desc: stripTags(g("description")), date: g("pubDate") };
-  }).filter(i => i.title);
-  if(!items.length) throw new Error("Keine Meldungen im Feed");
-  return items;
+  return parsePoliceXml(await res.text());
 }
 
 const POLICE_ATTEMPTS = [
+  // Corsfix: produktionstauglich, für öffentliche Open-Source-Projekte kostenlos.
+  signal => policeViaProxy(u => `https://proxy.corsfix.com/?${u}`, signal),
   policeViaRss2Json,
+  policeViaAllOriginsJson,
   signal => policeViaProxy(u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`, signal),
-  signal => policeViaProxy(u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`, signal),
-  signal => policeViaProxy(u => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(u)}`, signal)
+  signal => policeViaProxy(u => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(u)}`, signal),
+  signal => policeViaProxy(u => `https://cors.x2u.in/${u}`, signal)
 ];
 let policeLoaded = false, policeItems = [], policeFilter = "route";
 
@@ -2558,12 +2591,23 @@ async function loadPolice(){
     policeLoaded = true;
   }catch(err){
     stamp.textContent = "nicht verfügbar";
-    body.innerHTML = `<div class="infonote">Die Polizeimeldungen konnten nicht geladen werden (${esc(err.message)}).
-      Der Feed von berlin.de erlaubt keinen direkten Zugriff aus dem Browser und wird über einen öffentlichen
-      Zwischendienst geholt – der ist gelegentlich nicht erreichbar. Bitte den Reiter erneut antippen oder direkt nachsehen:</div>
+    body.innerHTML = `<div class="infonote">Die Polizeimeldungen konnten gerade nicht automatisch geladen werden
+      (${esc(err.message)}). Der Feed von berlin.de erlaubt keinen direkten Zugriff aus dem Browser und muss über
+      einen kostenlosen Zwischendienst geholt werden. Diese Dienste sind zeitweise überlastet oder gesperrt –
+      dann hilft nur der direkte Weg zur Quelle:</div>
       <div class="re7link" style="margin-top:10px">
-        <div><b>Polizei Berlin · Polizeimeldungen</b></div>
+        <div>
+          <div><b>Polizei Berlin · Polizeimeldungen</b></div>
+          <div class="re7linkmeta">Aktuelle Meldungen direkt bei berlin.de – funktioniert immer</div>
+        </div>
         <a href="https://www.berlin.de/polizei/polizeimeldungen/" target="_blank" rel="noopener">Öffnen ↗</a>
+      </div>
+      <div class="re7link">
+        <div>
+          <div><b>Polizei Brandenburg</b></div>
+          <div class="re7linkmeta">Für Michendorf, Potsdam-Mittelmark und Umgebung</div>
+        </div>
+        <a href="https://polizei.brandenburg.de/liste/meldungen-und-warndienste/73508" target="_blank" rel="noopener">Öffnen ↗</a>
       </div>`;
   }
 }
