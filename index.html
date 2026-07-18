@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- Dashboard-Build: 2026-07-18-cors-dienste-erneuert -->
+<!-- Dashboard-Build: 2026-07-18-worker-adresse-handrigunawan -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -889,6 +889,23 @@
 
 <script>
 const API = "https://v6.vbb.transport.rest";
+
+/* ============================================================
+   EIGENER CORS-PROXY (Cloudflare Worker)
+   ------------------------------------------------------------
+   Hier die Adresse eures Cloudflare Workers eintragen, z. B.
+   "https://pendler-proxy.handri.workers.dev".
+   Solange das Feld leer ist (""), nutzt das Dashboard nur die
+   öffentlichen Fremd-Dienste. Ist eine URL eingetragen, wird
+   der eigene Worker bevorzugt (zuverlässiger, keine Fremd-Limits).
+   ============================================================ */
+const OWN_PROXY = "https://pendler-proxy.handrigunawan.workers.dev";
+
+// Baut die Proxy-URL für ein Ziel: <worker>/?url=<ziel>
+function ownProxyUrl(targetUrl){
+  return `${OWN_PROXY.replace(/\/+$/,"")}/?url=${encodeURIComponent(targetUrl)}`;
+}
+function hasOwnProxy(){ return typeof OWN_PROXY === "string" && /^https?:\/\//.test(OWN_PROXY); }
 
 /* ---------- Wetterabhängiger Hintergrund ---------- */
 // Farbwelten je Wetterlage – jeweils für Tag und Nacht getrennt,
@@ -2147,6 +2164,7 @@ async function dbLookupStation(name){
   // Alle Wege gleichzeitig starten, der schnellste brauchbare gewinnt.
   const tries = [
     u => u,                                                      // falls doch erlaubt
+    ...(hasOwnProxy() ? [u => ownProxyUrl(u)] : []),             // eigener Worker zuerst
     u => `https://proxy.corsfix.com/?${u}`,                      // produktionstauglich
     u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,  // JSON-Wrapper
     u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
@@ -2359,7 +2377,17 @@ async function policeViaProxy(mk, signal){
   return parsePoliceXml(await res.text());
 }
 
+// Eigener Cloudflare Worker (falls konfiguriert): liefert den Feed als reines
+// XML zurück – zuverlässigste Quelle, weil unter eigener Kontrolle.
+async function policeViaOwnProxy(signal){
+  const res = await fetch(ownProxyUrl(POLICE_RSS), { signal });
+  if(!res.ok) throw new Error(`HTTP ${res.status}`);
+  return parsePoliceXml(await res.text());
+}
+
 const POLICE_ATTEMPTS = [
+  // Eigener Worker zuerst – nur wenn oben eine Adresse eingetragen ist.
+  ...(hasOwnProxy() ? [policeViaOwnProxy] : []),
   // Corsfix: produktionstauglich, für öffentliche Open-Source-Projekte kostenlos.
   signal => policeViaProxy(u => `https://proxy.corsfix.com/?${u}`, signal),
   policeViaRss2Json,
