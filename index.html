@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- Dashboard-Build: 2026-07-18-tabreihenfolge-re7label -->
+<!-- Dashboard-Build: 2026-07-18-polizeimeldungen-schneller -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -2293,12 +2293,47 @@ async function renderDbPanel(){
 
 /* ---------- Polizeimeldungen Berlin mit Streckenbezug ---------- */
 // berlin.de erlaubt keinen direkten Zugriff aus dem Browser (kein CORS),
-// deshalb holen wir den RSS-Feed über öffentliche Proxys – mit Rückfallebenen.
+// deshalb holen wir den RSS-Feed über öffentliche Zwischendienste.
+// rss2json ist auf genau diesen Zweck spezialisiert und in der Praxis meist
+// deutlich schneller als die generischen CORS-Proxys – deshalb als erster
+// Kandidat mit dabei, alle starten aber gleichzeitig (der schnellste gewinnt).
 const POLICE_RSS = "https://www.berlin.de/polizei/polizeimeldungen/index.php/rss";
-const POLICE_PROXIES = [
-  u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
-  u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
-  u => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(u)}`
+
+async function policeViaRss2Json(signal){
+  const url = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(POLICE_RSS)}&count=60`;
+  const res = await fetch(url, { signal });
+  if(!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  if(data.status !== "ok" || !Array.isArray(data.items) || !data.items.length) throw new Error("rss2json leer");
+  const items = data.items.map(it => ({
+    title: stripTags(it.title || ""), link: it.link || "",
+    desc: stripTags(it.description || it.content || ""), date: it.pubDate || ""
+  })).filter(i => i.title);
+  if(!items.length) throw new Error("Keine Meldungen im Feed");
+  return items;
+}
+
+async function policeViaProxy(mk, signal){
+  const res = await fetch(mk(POLICE_RSS), { signal });
+  if(!res.ok) throw new Error(`HTTP ${res.status}`);
+  const xml = await res.text();
+  if(!/<item[\s>]/i.test(xml)) throw new Error("Feed leer");
+  const doc = new DOMParser().parseFromString(xml, "application/xml");
+  if(doc.querySelector("parsererror")) throw new Error("Feed nicht lesbar");
+  const items = [...doc.querySelectorAll("item")].slice(0, 60).map(n => {
+    const g = s => n.querySelector(s)?.textContent?.trim() || "";
+    return { title: stripTags(g("title")), link: g("link"),
+             desc: stripTags(g("description")), date: g("pubDate") };
+  }).filter(i => i.title);
+  if(!items.length) throw new Error("Keine Meldungen im Feed");
+  return items;
+}
+
+const POLICE_ATTEMPTS = [
+  policeViaRss2Json,
+  signal => policeViaProxy(u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`, signal),
+  signal => policeViaProxy(u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`, signal),
+  signal => policeViaProxy(u => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(u)}`, signal)
 ];
 let policeLoaded = false, policeItems = [], policeFilter = "route";
 
@@ -2339,45 +2374,44 @@ function polClassify(it){
 
 // Zwischenspeicher für die laufende Sitzung – beim zweiten Öffnen ist der Reiter sofort da
 const POLICE_CACHE_KEY = "policeFeedCache";
-const POLICE_CACHE_MS = 10 * 60 * 1000;   // 10 Minuten
-function readPoliceCache(){
+const POLICE_CACHE_MS = 10 * 60 * 1000;    // gilt als "frisch" – keine Aktualisierung nötig
+const POLICE_STALE_MS = 60 * 60 * 1000;    // älter, aber noch zeigbar – wird im Hintergrund aktualisiert
+function readPoliceCache(maxAgeMs = POLICE_CACHE_MS){
   try{
     const c = JSON.parse(sessionStorage.getItem(POLICE_CACHE_KEY) || "null");
-    if(!c || Date.now() - c.t > POLICE_CACHE_MS) return null;
+    if(!c || Date.now() - c.t > maxAgeMs) return null;
     return c;
   }catch{ return null; }
 }
 
 async function fetchPoliceFeed(){
-  // Früher liefen die Proxys nacheinander – jeder hängende Dienst kostete den vollen Timeout.
-  // Jetzt starten alle gleichzeitig, der schnellste brauchbare gewinnt.
-  const attempt = async (mk) => {
+  // Alle Quellen starten gleichzeitig, der schnellste brauchbare gewinnt.
+  const attempt = async (fn) => {
     const ctrl = new AbortController();
-    const kill = setTimeout(() => ctrl.abort(), 7000);   // hängende Proxys abbrechen
-    try{
-      const res = await fetch(mk(POLICE_RSS), { signal: ctrl.signal });
-      if(!res.ok) throw new Error(`HTTP ${res.status}`);
-      const xml = await res.text();
-      if(!/<item[\s>]/i.test(xml)) throw new Error("Feed leer");
-      const doc = new DOMParser().parseFromString(xml, "application/xml");
-      if(doc.querySelector("parsererror")) throw new Error("Feed nicht lesbar");
-      const items = [...doc.querySelectorAll("item")].slice(0, 60).map(n => {
-        const g = s => n.querySelector(s)?.textContent?.trim() || "";
-        return { title: stripTags(g("title")), link: g("link"),
-                 desc: stripTags(g("description")), date: g("pubDate") };
-      }).filter(i => i.title);
-      if(!items.length) throw new Error("Keine Meldungen im Feed");
-      return items;
-    } finally { clearTimeout(kill); }
+    const kill = setTimeout(() => ctrl.abort(), 6000);   // hängende Dienste abbrechen
+    try{ return await fn(ctrl.signal); }
+    finally{ clearTimeout(kill); }
   };
 
   try{
-    const items = await Promise.any(POLICE_PROXIES.map(attempt));
+    const items = await Promise.any(POLICE_ATTEMPTS.map(attempt));
     try{ sessionStorage.setItem(POLICE_CACHE_KEY, JSON.stringify({ t: Date.now(), items })); }catch{}
     return items;
   }catch{
     throw new Error("kein Zwischendienst erreichbar");
   }
+}
+
+// Läuft bereits eine Abfrage (z. B. durch das Vorladen im Hintergrund), wird diese
+// wiederverwendet, statt eine zweite parallele Anfrage an dieselben – oft ohnehin
+// überlasteten – kostenlosen Dienste zu schicken. Das war zuvor ein Grund für
+// unnötig lange Wartezeiten, wenn der Reiter kurz nach dem Seitenaufruf angetippt wurde.
+let policeFetchPromise = null;
+function getPoliceFeed(){
+  if(!policeFetchPromise){
+    policeFetchPromise = fetchPoliceFeed().finally(() => { policeFetchPromise = null; });
+  }
+  return policeFetchPromise;
 }
 
 function polAge(dateStr){
@@ -2462,7 +2496,7 @@ function updatePoliceBadge(){
 // Im Hintergrund vorladen, damit der Reiter beim Antippen bereits gefüllt ist
 function prefetchPolice(){
   if(policeLoaded || readPoliceCache()) return;
-  fetchPoliceFeed().then(raw => {
+  getPoliceFeed().then(raw => {
     policeItems = raw.map(polClassify);
     policeLoaded = true;
     updatePoliceBadge();
@@ -2478,21 +2512,45 @@ async function loadPolice(){
   const body = document.getElementById("policeBody");
   const stamp = document.getElementById("policeStamp");
 
-  // Frischer Zwischenspeicher? Dann ohne jede Wartezeit anzeigen.
-  const cached = readPoliceCache();
-  if(cached){
-    policeItems = cached.items.map(polClassify);
+  // Frischer Zwischenspeicher (< 10 Min)? Dann ohne jede Wartezeit anzeigen.
+  const fresh = readPoliceCache(POLICE_CACHE_MS);
+  if(fresh){
+    policeItems = fresh.items.map(polClassify);
     renderPolice();
     updatePoliceBadge();
     policeLoaded = true;
-    stamp.textContent = "Stand: " + new Date(cached.t).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"}) + " Uhr";
+    stamp.textContent = "Stand: " + new Date(fresh.t).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"}) + " Uhr";
     return;
   }
 
+  // Älterer Zwischenspeicher (bis zu 1 Std.)? Sofort anzeigen und im Hintergrund
+  // aktualisieren – so wartet man beim erneuten Öffnen praktisch nie mehr auf den Feed.
+  const stale = readPoliceCache(POLICE_STALE_MS);
+  if(stale){
+    policeItems = stale.items.map(polClassify);
+    renderPolice();
+    updatePoliceBadge();
+    policeLoaded = true;
+    const staleTime = new Date(stale.t).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
+    stamp.textContent = `Stand: ${staleTime} Uhr · wird aktualisiert …`;
+    getPoliceFeed().then(raw => {
+      policeItems = raw.map(polClassify);
+      updatePoliceBadge();
+      if(activeTab === "police"){
+        renderPolice();
+        stamp.textContent = "Stand: " + new Date().toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"}) + " Uhr";
+      }
+    }).catch(() => {
+      if(activeTab === "police") stamp.textContent = `Stand: ${staleTime} Uhr (Aktualisierung fehlgeschlagen)`;
+    });
+    return;
+  }
+
+  // Kein Zwischenspeicher vorhanden – jetzt muss tatsächlich gewartet werden.
   body.innerHTML = `<div class="state" style="padding:34px 20px"><div class="spinner"></div>Polizeimeldungen werden geladen …</div>`;
   stamp.textContent = "wird geladen …";
   try{
-    const raw = await fetchPoliceFeed();
+    const raw = await getPoliceFeed();
     policeItems = raw.map(polClassify);
     renderPolice();
     updatePoliceBadge();
